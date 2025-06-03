@@ -9,10 +9,9 @@ const HotelSchema = new mongoose.Schema({
   },
   address: {
     type: String,
-    required: [true, 'L\'adresse est requise'],
-    trim: true
+    trim: true  // PAS REQUIS
   },
-  city: {
+  location: {  // CHANGÉ DE city vers location
     type: String,
     required: [true, 'La ville est requise'],
     trim: true
@@ -41,16 +40,21 @@ const HotelSchema = new mongoose.Schema({
     trim: true,
     maxlength: [1000, 'La description ne peut pas dépasser 1000 caractères']
   },
-  price: {
+  pricePerNight: {  // CHANGÉ DE price vers pricePerNight
     type: Number,
-    required: [true, 'Le prix est requis'],
     min: [0, 'Le prix doit être positif']
+    // PAS REQUIS
   },
   rating: {
     type: Number,
-    min: [1, 'La note minimum est 1'],
+    min: [0, 'La note minimum est 0'],  // CHANGÉ DE 1 vers 0
     max: [5, 'La note maximum est 5'],
     default: null
+  },
+  category: {  // AJOUTÉ pour correspondre au frontend
+    type: String,
+    enum: ['Hotel', 'Resort', 'Residence', 'Auberge', 'Aparthotel'],
+    default: 'Hotel'
   },
   amenities: [{
     type: String,
