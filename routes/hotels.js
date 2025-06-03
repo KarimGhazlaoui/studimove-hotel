@@ -15,10 +15,9 @@ router.get('/', async (req, res) => {
       data: hotels
     });
   } catch (error) {
-    console.error('Erreur lors de la récupération des hôtels:', error);
     res.status(500).json({
       success: false,
-      message: 'Erreur serveur lors de la récupération des hôtels'
+      message: 'Erreur serveur'
     });
   }
 });
@@ -42,13 +41,6 @@ router.get('/:id', async (req, res) => {
       data: hotel
     });
   } catch (error) {
-    console.error('Erreur lors de la récupération de l\'hôtel:', error);
-    if (error.name === 'CastError') {
-      return res.status(400).json({
-        success: false,
-        message: 'ID d\'hôtel invalide'
-      });
-    }
     res.status(500).json({
       success: false,
       message: 'Erreur serveur'
