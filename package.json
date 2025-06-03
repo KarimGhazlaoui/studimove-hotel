@@ -1,0 +1,33 @@
+{
+  "name": "studimove-hotel",
+  "version": "1.0.0",
+  "description": "Application de gestion d'hôtels StudiMove",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "server": "nodemon server.js",
+    "client": "npm start --prefix client",
+    "dev": "concurrently \"npm run server\" \"npm run client\"",
+    "build": "npm install --prefix client && npm run build --prefix client",
+    "postinstall": "npm install --prefix client && npm run build --prefix client"
+  },
+  "engines": {
+    "node": "18.x",
+    "npm": "9.x"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "mongoose": "^6.10.0",
+    "dotenv": "^16.0.3",
+    "cors": "^2.8.5",
+    "bcryptjs": "^2.4.3",
+    "jsonwebtoken": "^9.0.0",
+    "express-rate-limit": "^6.7.0"
+  },
+  "devDependencies": {
+    "nodemon": "^2.0.22",
+    "concurrently": "^7.6.0"
+  },
+  "author": "StudiMove",
+  "license": "MIT"
+}
