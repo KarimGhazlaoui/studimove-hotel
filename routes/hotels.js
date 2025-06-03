@@ -2,19 +2,7 @@ const express = require('express');
 const router = express.Router();
 const Hotel = require('../models/Hotel');
 
-// Import du middleware d'authentification (optionnel pour certaines routes)
-let auth;
-try {
-  auth = require('../middleware/auth');
-} catch (error) {
-  console.log('Middleware auth non trouvé, certaines routes seront publiques');
-  // Middleware de substitution qui ne fait rien
-  auth = (req, res, next) => next();
-}
-
-// @route   GET /api/hotels
-// @desc    Obtenir tous les hôtels (PUBLIC)
-// @access  Public
+// GET /api/hotels - Récupérer tous les hôtels
 router.get('/', async (req, res) => {
   try {
     const hotels = await Hotel.find().sort({ createdAt: -1 });
@@ -24,7 +12,7 @@ router.get('/', async (req, res) => {
       data: hotels
     });
   } catch (error) {
-    console.error('Erreur lors de la récupération des hôtels:', error);
+    console.error('Erreur GET hotels:', error);
     res.status(500).json({
       success: false,
       message: 'Erreur serveur lors de la récupération des hôtels'
@@ -32,9 +20,43 @@ router.get('/', async (req, res) => {
   }
 });
 
-// @route   GET /api/hotels/:id
-// @desc    Obtenir un hôtel par ID (PUBLIC)
-// @access  Public
+// POST /api/hotels - Créer un nouvel hôtel
+router.post('/', async (req, res) => {
+  try {
+    console.log('📥 Données reçues:', req.body);
+    
+    // SUPPRIMEZ LA VALIDATION MANUELLE - Laissez Mongoose gérer
+    // Créer l'hôtel directement
+    const hotel = new Hotel(req.body);
+    const savedHotel = await hotel.save();
+    
+    console.log('✅ Hôtel créé:', savedHotel);
+    
+    res.status(201).json({
+      success: true,
+      data: savedHotel
+    });
+  } catch (error) {
+    console.error('❌ Erreur POST hotel:', error);
+    
+    // Erreur de validation Mongoose
+    if (error.name === 'ValidationError') {
+      const messages = Object.values(error.errors).map(val => val.message);
+      return res.status(400).json({
+        success: false,
+        message: 'Erreur de validation',
+        errors: messages
+      });
+    }
+    
+    res.status(500).json({
+      success: false,
+      message: 'Erreur serveur lors de la création de l\'hôtel'
+    });
+  }
+});
+
+// GET /api/hotels/:id - Récupérer un hôtel par ID
 router.get('/:id', async (req, res) => {
   try {
     const hotel = await Hotel.findById(req.params.id);
@@ -51,13 +73,7 @@ router.get('/:id', async (req, res) => {
       data: hotel
     });
   } catch (error) {
-    console.error('Erreur lors de la récupération de l\'hôtel:', error);
-    if (error.name === 'CastError') {
-      return res.status(400).json({
-        success: false,
-        message: 'ID d\'hôtel invalide'
-      });
-    }
+    console.error('Erreur GET hotel by ID:', error);
     res.status(500).json({
       success: false,
       message: 'Erreur serveur'
@@ -65,77 +81,14 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// @route   POST /api/hotels
-// @desc    Créer un nouvel hôtel (PUBLIC temporairement)
-// @access  Public
-router.post('/', async (req, res) => {
-  try {
-    const { name, description, address, city, pricePerNight, rating, amenities, imageUrl, phone, email, available } = req.body;
-
-    // Validation des champs requis
-    if (!name || !address || !city || !pricePerNight) {
-      return res.status(400).json({
-        success: false,
-        message: 'Veuillez remplir tous les champs obligatoires (nom, adresse, ville, prix)'
-      });
-    }
-
-    // Validation du prix
-    if (pricePerNight <= 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'Le prix par nuit doit être supérieur à 0'
-      });
-    }
-
-    const hotel = new Hotel({
-      name,
-      description,
-      address,
-      city,
-      pricePerNight,
-      rating: rating || 4.0,
-      amenities: amenities || [],
-      imageUrl,
-      phone,
-      email,
-      available: available !== undefined ? available : true
-    });
-
-    const savedHotel = await hotel.save();
-    
-    res.status(201).json({
-      success: true,
-      message: 'Hôtel créé avec succès',
-      data: savedHotel
-    });
-  } catch (error) {
-    console.error('Erreur lors de la création de l\'hôtel:', error);
-    
-    if (error.name === 'ValidationError') {
-      const errors = Object.values(error.errors).map(err => err.message);
-      return res.status(400).json({
-        success: false,
-        message: 'Erreur de validation',
-        errors
-      });
-    }
-    
-    res.status(500).json({
-      success: false,
-      message: 'Erreur serveur lors de la création de l\'hôtel'
-    });
-  }
-});
-
-// @route   PUT /api/hotels/:id
-// @desc    Modifier un hôtel (PUBLIC temporairement)
-// @access  Public
+// PUT /api/hotels/:id - Mettre à jour un hôtel
 router.put('/:id', async (req, res) => {
   try {
-    const { name, description, address, city, pricePerNight, rating, amenities, imageUrl, phone, email, available } = req.body;
-
-    const hotel = await Hotel.findById(req.params.id);
+    const hotel = await Hotel.findByIdAndUpdate(
+      req.params.id,
+      req.body,
+      { new: true, runValidators: true }
+    );
     
     if (!hotel) {
       return res.status(404).json({
@@ -143,42 +96,34 @@ router.put('/:id', async (req, res) => {
         message: 'Hôtel non trouvé'
       });
     }
-
-    // Mise à jour des champs
-    hotel.name = name || hotel.name;
-    hotel.description = description || hotel.description;
-    hotel.address = address || hotel.address;
-    hotel.city = city || hotel.city;
-    hotel.pricePerNight = pricePerNight || hotel.pricePerNight;
-    hotel.rating = rating || hotel.rating;
-    hotel.amenities = amenities || hotel.amenities;
-    hotel.imageUrl = imageUrl || hotel.imageUrl;
-    hotel.phone = phone || hotel.phone;
-    hotel.email = email || hotel.email;
-    hotel.available = available !== undefined ? available : hotel.available;
-
-    const updatedHotel = await hotel.save();
     
     res.json({
       success: true,
-      message: 'Hôtel modifié avec succès',
-      data: updatedHotel
+      data: hotel
     });
   } catch (error) {
-    console.error('Erreur lors de la modification de l\'hôtel:', error);
+    console.error('Erreur PUT hotel:', error);
+    
+    if (error.name === 'ValidationError') {
+      const messages = Object.values(error.errors).map(val => val.message);
+      return res.status(400).json({
+        success: false,
+        message: 'Erreur de validation',
+        errors: messages
+      });
+    }
+    
     res.status(500).json({
       success: false,
-      message: 'Erreur serveur lors de la modification'
+      message: 'Erreur serveur lors de la mise à jour'
     });
   }
 });
 
-// @route   DELETE /api/hotels/:id
-// @desc    Supprimer un hôtel (PUBLIC temporairement)
-// @access  Public
+// DELETE /api/hotels/:id - Supprimer un hôtel
 router.delete('/:id', async (req, res) => {
   try {
-    const hotel = await Hotel.findById(req.params.id);
+    const hotel = await Hotel.findByIdAndDelete(req.params.id);
     
     if (!hotel) {
       return res.status(404).json({
@@ -186,15 +131,13 @@ router.delete('/:id', async (req, res) => {
         message: 'Hôtel non trouvé'
       });
     }
-
-    await Hotel.findByIdAndDelete(req.params.id);
     
     res.json({
       success: true,
       message: 'Hôtel supprimé avec succès'
     });
   } catch (error) {
-    console.error('Erreur lors de la suppression de l\'hôtel:', error);
+    console.error('Erreur DELETE hotel:', error);
     res.status(500).json({
       success: false,
       message: 'Erreur serveur lors de la suppression'
