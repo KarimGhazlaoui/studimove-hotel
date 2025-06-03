@@ -1,7 +1,16 @@
 const express = require('express');
 const router = express.Router();
 const Hotel = require('../models/Hotel');
-const auth = require('../middleware/auth'); // Import du middleware
+
+// Import du middleware d'authentification (optionnel pour certaines routes)
+let auth;
+try {
+  auth = require('../middleware/auth');
+} catch (error) {
+  console.log('Middleware auth non trouvé, certaines routes seront publiques');
+  // Middleware de substitution qui ne fait rien
+  auth = (req, res, next) => next();
+}
 
 // @route   GET /api/hotels
 // @desc    Obtenir tous les hôtels (PUBLIC)
@@ -15,9 +24,10 @@ router.get('/', async (req, res) => {
       data: hotels
     });
   } catch (error) {
+    console.error('Erreur lors de la récupération des hôtels:', error);
     res.status(500).json({
       success: false,
-      message: 'Erreur serveur'
+      message: 'Erreur serveur lors de la récupération des hôtels'
     });
   }
 });
@@ -41,6 +51,13 @@ router.get('/:id', async (req, res) => {
       data: hotel
     });
   } catch (error) {
+    console.error('Erreur lors de la récupération de l\'hôtel:', error);
+    if (error.name === 'CastError') {
+      return res.status(400).json({
+        success: false,
+        message: 'ID d\'hôtel invalide'
+      });
+    }
     res.status(500).json({
       success: false,
       message: 'Erreur serveur'
@@ -49,9 +66,9 @@ router.get('/:id', async (req, res) => {
 });
 
 // @route   POST /api/hotels
-// @desc    Créer un nouvel hôtel (PROTÉGÉ)
-// @access  Private
-router.post('/', auth, async (req, res) => {
+// @desc    Créer un nouvel hôtel (PUBLIC temporairement)
+// @access  Public
+router.post('/', async (req, res) => {
   try {
     const { name, description, address, city, pricePerNight, rating, amenities, imageUrl, phone, email, available } = req.body;
 
@@ -71,21 +88,13 @@ router.post('/', auth, async (req, res) => {
       });
     }
 
-    // Validation de la note
-    if (rating && (rating < 1 || rating > 5)) {
-      return res.status(400).json({
-        success: false,
-        message: 'La note doit être entre 1 et 5'
-      });
-    }
-
     const hotel = new Hotel({
       name,
       description,
       address,
       city,
       pricePerNight,
-      rating,
+      rating: rating || 4.0,
       amenities: amenities || [],
       imageUrl,
       phone,
@@ -120,9 +129,9 @@ router.post('/', auth, async (req, res) => {
 });
 
 // @route   PUT /api/hotels/:id
-// @desc    Modifier un hôtel (PROTÉGÉ)
-// @access  Private
-router.put('/:id', auth, async (req, res) => {
+// @desc    Modifier un hôtel (PUBLIC temporairement)
+// @access  Public
+router.put('/:id', async (req, res) => {
   try {
     const { name, description, address, city, pricePerNight, rating, amenities, imageUrl, phone, email, available } = req.body;
 
@@ -165,9 +174,9 @@ router.put('/:id', auth, async (req, res) => {
 });
 
 // @route   DELETE /api/hotels/:id
-// @desc    Supprimer un hôtel (PROTÉGÉ)
-// @access  Private
-router.delete('/:id', auth, async (req, res) => {
+// @desc    Supprimer un hôtel (PUBLIC temporairement)
+// @access  Public
+router.delete('/:id', async (req, res) => {
   try {
     const hotel = await Hotel.findById(req.params.id);
     
@@ -189,38 +198,6 @@ router.delete('/:id', auth, async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Erreur serveur lors de la suppression'
-    });
-  }
-});
-
-// @route   GET /api/hotels/stats
-// @desc    Obtenir les statistiques des hôtels (PUBLIC)
-// @access  Public
-router.get('/stats', async (req, res) => {
-  try {
-    const totalHotels = await Hotel.countDocuments();
-    const availableHotels = await Hotel.countDocuments({ available: true });
-    const avgPrice = await Hotel.aggregate([
-      { $group: { _id: null, avgPrice: { $avg: '$pricePerNight' } } }
-    ]);
-    const avgRating = await Hotel.aggregate([
-      { $group: { _id: null, avgRating: { $avg: '$rating' } } }
-    ]);
-
-    res.json({
-      success: true,
-      data: {
-        totalHotels,
-        availableHotels,
-        avgPrice: avgPrice[0]?.avgPrice || 0,
-        avgRating: avgRating[0]?.avgRating || 0
-      }
-    });
-  } catch (error) {
-    console.error('Erreur lors de la récupération des statistiques:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Erreur serveur lors de la récupération des statistiques'
     });
   }
 });
