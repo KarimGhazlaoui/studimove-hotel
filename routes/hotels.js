@@ -31,10 +31,10 @@ router.get('/', async (req, res) => {
       .populate('eventId', 'name country city')
       .sort({ name: 1 });
 
-    // Calculer les statistiques pour chaque hôtel
-    for (let hotel of hotels) {
-      await hotel.updateAssignedClients();
-    }
+    // 🚨 COMMENTÉ TEMPORAIREMENT - CAUSE L'ERREUR DE VALIDATION
+    // for (let hotel of hotels) {
+    //   await hotel.updateAssignedClients();
+    // }
 
     res.json({
       success: true,
