@@ -4,32 +4,37 @@ const Hotel = require('../models/Hotel');
 const Event = require('../models/Event');
 const Client = require('../models/Client');
 
-// GET /api/hotels - Récupérer tous les hôtels
+// GET /api/hotels - Récupérer tous les hôtels (avec filtre par événement)
 router.get('/', async (req, res) => {
   try {
-    const { eventId, search, location } = req.query;
+    const { eventId, search, city, status } = req.query;
     let filter = {};
 
-    // Si eventId fourni, filtrer par événement
+    // ✅ OPTIONNEL: Filtrer par événement (plus obligatoire)
     if (eventId) {
-      filter.assignedEvent = eventId;
+      filter.eventId = eventId;
     }
 
-    // Autres filtres optionnels
+    // Autres filtres
     if (search) {
       filter.$or = [
         { name: { $regex: search, $options: 'i' } },
-        { address: { $regex: search, $options: 'i' } }
+        { 'address.city': { $regex: search, $options: 'i' } },
+        { 'address.country': { $regex: search, $options: 'i' } }
       ];
     }
 
-    if (location) {
-      filter.location = { $regex: location, $options: 'i' };
-    }
+    if (city) filter['address.city'] = { $regex: city, $options: 'i' };
+    if (status && status !== 'all') filter.status = status;
 
     const hotels = await Hotel.find(filter)
-      .populate('assignedEvent', 'name')
-      .sort({ createdAt: -1 });
+      .populate('eventId', 'name country city')
+      .sort({ name: 1 });
+
+    // Calculer les statistiques pour chaque hôtel
+    for (let hotel of hotels) {
+      await hotel.updateAssignedClients();
+    }
 
     res.json({
       success: true,
@@ -40,10 +45,12 @@ router.get('/', async (req, res) => {
     console.error('Erreur GET hotels:', error);
     res.status(500).json({
       success: false,
-      message: 'Erreur serveur lors de la récupération des hôtels'
+      message: 'Erreur lors de la récupération des hôtels',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });
+
 
 // POST /api/hotels - Créer un nouvel hôtel
 router.post('/', async (req, res) => {
