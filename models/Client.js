@@ -3,43 +3,40 @@ const mongoose = require('mongoose');
 const ClientSchema = new mongoose.Schema({
   firstName: {
     type: String,
-    required: [true, 'Le prénom est requis'],
-    trim: true,
-    maxlength: [50, 'Le prénom ne peut pas dépasser 50 caractères']
+    required: true,
+    trim: true
   },
   lastName: {
     type: String,
-    required: [true, 'Le nom est requis'],
-    trim: true,
-    maxlength: [50, 'Le nom ne peut pas dépasser 50 caractères']
+    required: true,
+    trim: true
   },
   phone: {
     type: String,
-    required: [true, 'Le téléphone est requis'],
-    trim: true,
-    validate: {
-      validator: function(v) {
-        return /^[\+]?[\d\s\-\(\)]{8,}$/.test(v);
-      },
-      message: 'Format de téléphone invalide'
-    }
+    required: true,
+    trim: true
   },
   type: {
     type: String,
     enum: ['Solo', 'Groupe'],
-    required: [true, 'Le type (Solo/Groupe) est requis'],
     default: 'Solo'
+  },
+  groupName: {
+    type: String,
+    trim: true,
+    default: null
   },
   groupSize: {
     type: Number,
-    min: [1, 'La taille du groupe doit être au minimum 1'],
-    max: [20, 'La taille du groupe ne peut pas dépasser 20'],
+    required: true,
+    min: 1,
+    max: 20,
     default: 1
   },
   notes: {
     type: String,
-    trim: true,
-    maxlength: [500, 'Les notes ne peuvent pas dépasser 500 caractères']
+    maxlength: 500,
+    default: ''
   },
   // Ajout pour la répartition future
   assignedHotel: {
@@ -61,8 +58,10 @@ const ClientSchema = new mongoose.Schema({
 });
 
 // Index pour la recherche
-ClientSchema.index({ firstName: 1, lastName: 1 });
-ClientSchema.index({ phone: 1 });
+ClientSchema.index({ firstName: 'text', lastName: 'text', phone: 'text', groupName: 'text' });
+
+// Index pour grouper par nom de groupe
+ClientSchema.index({ groupName: 1, type: 1 });
 
 // Méthode virtuelle pour le nom complet
 ClientSchema.virtual('fullName').get(function() {
