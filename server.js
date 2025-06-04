@@ -58,7 +58,9 @@ app.use('/api/auth', require('./routes/auth'));
 app.use('/api/users', require('./routes/users'));
 app.use('/api/clients', require('./routes/clients'));
 app.use('/api/events', require('./routes/events'));
+app.use('/api/dashboard', require('./routes/dashboard'));
 app.use('/api/health', require('./routes/health'));
+
 
 // Page d'accueil de l'API
 app.get('/', (req, res) => {
