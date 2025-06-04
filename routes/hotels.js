@@ -4,42 +4,32 @@ const Hotel = require('../models/Hotel');
 const Event = require('../models/Event');
 const Client = require('../models/Client');
 
-// GET /api/hotels - Récupérer tous les hôtels (avec filtre par événement)
+// GET /api/hotels - Récupérer tous les hôtels
 router.get('/', async (req, res) => {
   try {
-    const { eventId, search, city, status } = req.query;
+    const { eventId, search, location } = req.query;
     let filter = {};
 
-    // 🆕 OBLIGATOIRE: Filtrer par événement
-    if (!eventId) {
-      return res.status(400).json({
-        success: false,
-        message: 'L\'ID de l\'événement est requis'
-      });
+    // Si eventId fourni, filtrer par événement
+    if (eventId) {
+      filter.assignedEvent = eventId;
     }
 
-    filter.eventId = eventId;
-
-    // Autres filtres
+    // Autres filtres optionnels
     if (search) {
       filter.$or = [
         { name: { $regex: search, $options: 'i' } },
-        { 'address.city': { $regex: search, $options: 'i' } },
-        { 'address.country': { $regex: search, $options: 'i' } }
+        { address: { $regex: search, $options: 'i' } }
       ];
     }
 
-    if (city) filter['address.city'] = { $regex: city, $options: 'i' };
-    if (status && status !== 'all') filter.status = status;
+    if (location) {
+      filter.location = { $regex: location, $options: 'i' };
+    }
 
     const hotels = await Hotel.find(filter)
-      .populate('eventId', 'name country city')
-      .sort({ name: 1 });
-
-    // Calculer les statistiques pour chaque hôtel
-    for (let hotel of hotels) {
-      await hotel.updateAssignedClients();
-    }
+      .populate('assignedEvent', 'name')
+      .sort({ createdAt: -1 });
 
     res.json({
       success: true,
@@ -50,7 +40,7 @@ router.get('/', async (req, res) => {
     console.error('Erreur GET hotels:', error);
     res.status(500).json({
       success: false,
-      message: 'Erreur lors de la récupération des hôtels'
+      message: 'Erreur serveur lors de la récupération des hôtels'
     });
   }
 });

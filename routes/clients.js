@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const express = require('express');
 const router = express.Router();
 const Client = require('../models/Client');
@@ -16,15 +17,10 @@ router.get('/', async (req, res) => {
     const { eventId, search, clientType, status, gender, groupName } = req.query;
     let filter = {};
 
-    // 🆕 OBLIGATOIRE: Filtrer par événement
-    if (!eventId) {
-      return res.status(400).json({
-        success: false,
-        message: 'L\'ID de l\'événement est requis'
-      });
+    // ✅ OPTIONNEL: Filtrer par événement (plus obligatoire)
+    if (eventId) {
+      filter.eventId = eventId;
     }
-
-    filter.eventId = eventId;
 
     // Autres filtres
     if (search) {
