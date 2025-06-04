@@ -14,7 +14,7 @@ console.log('NODE_ENV:', process.env.NODE_ENV);
 console.log('MONGODB_URI:', process.env.MONGODB_URI ? '✅ Défini' : '❌ NON DÉFINI');
 console.log('JWT_SECRET:', process.env.JWT_SECRET ? '✅ Défini' : '❌ NON DÉFINI');
 
-// Vérifications
+// Vérification
 if (!process.env.MONGODB_URI) {
   console.error('❌ MONGODB_URI manquant');
   process.exit(1);
