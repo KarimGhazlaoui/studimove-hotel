@@ -262,16 +262,21 @@ router.delete('/:id', async (req, res) => {
 // DELETE /api/clients/all - Supprimer tous les clients (TEMPORAIRE POUR TEST)
 router.delete('/all', async (req, res) => {
   try {
+    console.log('🗑️ Suppression de tous les clients...');
     const result = await Client.deleteMany({});
+    console.log(`✅ ${result.deletedCount} clients supprimés`);
+    
     res.json({
       success: true,
-      message: `${result.deletedCount} clients supprimés`
+      message: `${result.deletedCount} clients supprimés avec succès`,
+      deletedCount: result.deletedCount
     });
   } catch (error) {
-    console.error('Erreur suppression:', error);
+    console.error('❌ Erreur suppression tous clients:', error);
     res.status(500).json({
       success: false,
-      message: 'Erreur lors de la suppression'
+      message: 'Erreur serveur lors de la suppression des clients',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });
