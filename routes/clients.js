@@ -22,7 +22,7 @@ router.get('/', async (req, res) => {
       filter.eventId = eventId;
     }
 
-    // Autres filtres
+    // Autres filtres (gardez votre code existant)
     if (search) {
       filter.$or = [
         { firstName: { $regex: search, $options: 'i' } },
