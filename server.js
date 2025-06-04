@@ -59,15 +59,6 @@ app.use('/api/users', require('./routes/users'));
 app.use('/api/clients', require('./routes/clients'));
 app.use('/api/health', require('./routes/health'));
 
-// Si en production, servir les fichiers statiques du frontend
-if (process.env.NODE_ENV === 'production') {
-  app.use(express.static('client/build'));
-  
-  app.get('*', (req, res) => {
-    res.sendFile(path.resolve(__dirname, 'client', 'build', 'index.html'));
-  });
-}
-
 // Page d'accueil de l'API
 app.get('/', (req, res) => {
   res.json({
@@ -78,9 +69,11 @@ app.get('/', (req, res) => {
       auth: '/api/auth (POST /login, /register)',
       hotels: '/api/hotels (GET, POST, PUT, DELETE)',
       users: '/api/users (GET, PUT, DELETE)',
+      clients: '/api/clients (GET, POST, PUT, DELETE)',
       health: '/api/health'
     },
-    documentation: 'API REST pour la gestion d\'hôtels'
+    documentation: 'API REST pour la gestion d\'hôtels',
+    frontend: 'Déployé séparément sur Vercel'
   });
 });
 
