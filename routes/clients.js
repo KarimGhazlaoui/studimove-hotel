@@ -275,7 +275,7 @@ router.delete('/all', async (req, res) => {
     console.error('❌ Erreur suppression tous clients:', error);
     res.status(500).json({
       success: false,
-      message: 'Erreur serveur lors de la suppression des clients',
+      message: 'Erreur lors de la suppression de tous les clients',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
@@ -301,7 +301,7 @@ router.post('/import-csv', upload.single('csvFile'), async (req, res) => {
       .on('data', (data) => results.push(data))
       .on('end', async () => {
         try {
-          console.log('Données CSV reçues:', results); // Debug
+          console.log('📊 Données CSV reçues:', results);
 
           for (let i = 0; i < results.length; i++) {
             const row = results[i];
@@ -314,31 +314,34 @@ router.post('/import-csv', upload.single('csvFile'), async (req, res) => {
                 continue;
               }
 
-              // Déterminer le type et nom de groupe
+              // 🎯 Déterminer le type et nom de groupe
               let clientType = 'Solo';
               let clientGroupName = null;
               
-              console.log(`Ligne ${lineNum} - Groupe reçu:`, row.groupe); // Debug
+              console.log(`Ligne ${lineNum} - Groupe brut: "${row.groupe}"`);
               
-              if (row.groupe && row.groupe.trim()) {
+              // Vérifier si la colonne groupe existe et n'est pas vide
+              if (row.groupe && typeof row.groupe === 'string' && row.groupe.trim() !== '') {
                 const groupValue = row.groupe.trim();
-                console.log(`Groupe après trim: "${groupValue}"`); // Debug
+                console.log(`Groupe nettoyé: "${groupValue}"`);
                 
+                // Si c'est explicitement "solo", garder Solo
                 if (groupValue.toLowerCase() === 'solo') {
                   clientType = 'Solo';
                   clientGroupName = null;
                 } else {
+                  // Sinon, c'est un groupe
                   clientType = 'Groupe';
                   clientGroupName = groupValue;
                 }
               }
 
-              console.log(`Type déterminé: ${clientType}, Nom groupe: ${clientGroupName}`); // Debug
+              console.log(`🏷️ Type final: ${clientType}, Groupe: ${clientGroupName}`);
 
-              // Vérifier si le client existe déjà
+              // Vérifier si client existe déjà
               const existingClient = await Client.findOne({ phone: row.telephone.trim() });
               if (existingClient) {
-                errors.push(`Ligne ${lineNum}: Client avec téléphone ${row.telephone} existe déjà`);
+                errors.push(`Ligne ${lineNum}: Client ${row.telephone} existe déjà`);
                 continue;
               }
 
@@ -346,8 +349,8 @@ router.post('/import-csv', upload.single('csvFile'), async (req, res) => {
               let groupSize = parseInt(row.taille_groupe) || 1;
               if (clientType === 'Solo') {
                 groupSize = 1;
-              } else if (groupSize < 2) {
-                groupSize = 2; // Minimum pour un groupe
+              } else if (groupSize < 1) {
+                groupSize = 1;
               }
 
               // Créer le client
@@ -358,49 +361,245 @@ router.post('/import-csv', upload.single('csvFile'), async (req, res) => {
                 type: clientType,
                 groupName: clientGroupName,
                 groupSize: groupSize,
-                notes: row.notes || ''
+                notes: row.notes ? row.notes.trim() : '',
+                status: 'En attente'
               };
 
-              console.log(`Données client à créer:`, clientData); // Debug
+              console.log(`💾 Création client:`, clientData);
 
               const client = new Client(clientData);
               await client.save();
               imported++;
 
-              console.log(`Client créé: ${client.firstName} ${client.lastName} - Type: ${client.type}`); // Debug
+              console.log(`✅ Client créé: ${client.firstName} ${client.lastName} - Type: ${client.type}, Groupe: ${client.groupName}`);
 
             } catch (error) {
-              console.error(`Erreur ligne ${lineNum}:`, error);
+              console.error(`❌ Ligne ${lineNum}:`, error);
               errors.push(`Ligne ${lineNum}: ${error.message}`);
             }
           }
 
           // Supprimer le fichier temporaire
-          fs.unlinkSync(req.file.path);
+          try {
+            fs.unlinkSync(req.file.path);
+          } catch (unlinkError) {
+            console.error('Erreur suppression fichier temporaire:', unlinkError);
+          }
 
           res.json({
             success: true,
             message: `Import terminé: ${imported} clients importés, ${errors.length} erreurs`,
             imported,
-            errors: errors.slice(0, 50) // Limiter les erreurs affichées
+            totalProcessed: results.length,
+            errors: errors.slice(0, 20) // Limiter les erreurs affichées
           });
 
         } catch (error) {
-          console.error('Erreur traitement CSV:', error);
-          fs.unlinkSync(req.file.path);
+          console.error('❌ Erreur traitement CSV:', error);
+          try {
+            fs.unlinkSync(req.file.path);
+          } catch (unlinkError) {
+            console.error('Erreur suppression fichier:', unlinkError);
+          }
           res.status(500).json({
             success: false,
-            message: 'Erreur lors du traitement du fichier CSV'
+            message: 'Erreur lors du traitement du fichier CSV',
+            error: error.message
           });
         }
+      })
+      .on('error', (error) => {
+        console.error('❌ Erreur lecture CSV:', error);
+        try {
+          fs.unlinkSync(req.file.path);
+        } catch (unlinkError) {
+          console.error('Erreur suppression fichier:', unlinkError);
+        }
+        res.status(500).json({
+          success: false,
+          message: 'Erreur lors de la lecture du fichier CSV',
+          error: error.message
+        });
       });
 
   } catch (error) {
-    console.error('Erreur import CSV:', error);
-    if (req.file) fs.unlinkSync(req.file.path);
+    console.error('❌ Erreur import CSV:', error);
+    if (req.file) {
+      try {
+        fs.unlinkSync(req.file.path);
+      } catch (unlinkError) {
+        console.error('Erreur suppression fichier:', unlinkError);
+      }
+    }
     res.status(500).json({
       success: false,
-      message: 'Erreur serveur lors de l\'import CSV'
+      message: 'Erreur serveur lors de l\'import CSV',
+      error: error.message
+    });
+  }
+});
+
+// POST /api/clients/assign-hotel - Assigner un hôtel à un client
+router.post('/assign-hotel', async (req, res) => {
+  try {
+    const { clientId, hotelId } = req.body;
+
+    if (!clientId || !hotelId) {
+      return res.status(400).json({
+        success: false,
+        message: 'ID client et ID hôtel requis'
+      });
+    }
+
+    const client = await Client.findByIdAndUpdate(
+      clientId,
+      { 
+        assignedHotel: hotelId,
+        status: 'Assigné'
+      },
+      { new: true }
+    ).populate('assignedHotel', 'name address');
+
+    if (!client) {
+      return res.status(404).json({
+        success: false,
+        message: 'Client non trouvé'
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Hôtel assigné avec succès',
+      data: client
+    });
+  } catch (error) {
+    console.error('Erreur assignation hôtel:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Erreur lors de l\'assignation de l\'hôtel'
+    });
+  }
+});
+
+// PUT /api/clients/:id/status - Mettre à jour le statut d'un client
+router.put('/:id/status', async (req, res) => {
+  try {
+    const { status } = req.body;
+    
+    const validStatuses = ['En attente', 'Assigné', 'Confirmé', 'Annulé'];
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Statut invalide. Valeurs acceptées: ' + validStatuses.join(', ')
+      });
+    }
+
+    const client = await Client.findByIdAndUpdate(
+      req.params.id,
+      { status },
+      { new: true }
+    ).populate('assignedHotel', 'name address');
+
+    if (!client) {
+      return res.status(404).json({
+        success: false,
+        message: 'Client non trouvé'
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Statut mis à jour avec succès',
+      data: client
+    });
+  } catch (error) {
+    console.error('Erreur mise à jour statut:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Erreur lors de la mise à jour du statut'
+    });
+  }
+});
+
+// GET /api/clients/stats - Obtenir les statistiques des clients
+router.get('/stats', async (req, res) => {
+  try {
+    const stats = await Client.aggregate([
+      {
+        $group: {
+          _id: null,
+          totalClients: { $sum: 1 },
+          soloClients: { $sum: { $cond: [{ $eq: ['$type', 'Solo'] }, 1, 0] } },
+          groupClients: { $sum: { $cond: [{ $eq: ['$type', 'Groupe'] }, 1, 0] } },
+          totalGroupSize: { $sum: '$groupSize' },
+          enAttente: { $sum: { $cond: [{ $eq: ['$status', 'En attente'] }, 1, 0] } },
+          assigne: { $sum: { $cond: [{ $eq: ['$status', 'Assigné'] }, 1, 0] } },
+          confirme: { $sum: { $cond: [{ $eq: ['$status', 'Confirmé'] }, 1, 0] } },
+          annule: { $sum: { $cond: [{ $eq: ['$status', 'Annulé'] }, 1, 0] } }
+        }
+      }
+    ]);
+
+    const result = stats[0] || {
+      totalClients: 0,
+      soloClients: 0,
+      groupClients: 0,
+      totalGroupSize: 0,
+      enAttente: 0,
+      assigne: 0,
+      confirme: 0,
+      annule: 0
+    };
+
+    res.json({
+      success: true,
+      data: result
+    });
+  } catch (error) {
+    console.error('Erreur stats clients:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Erreur lors du calcul des statistiques'
+    });
+  }
+});
+
+// GET /api/clients/search/:query - Recherche avancée de clients
+router.get('/search/:query', async (req, res) => {
+  try {
+    const query = req.params.query;
+    
+    if (!query || query.length < 2) {
+      return res.status(400).json({
+        success: false,
+        message: 'La recherche doit contenir au moins 2 caractères'
+      });
+    }
+
+    const clients = await Client.find({
+      $or: [
+        { firstName: { $regex: query, $options: 'i' } },
+        { lastName: { $regex: query, $options: 'i' } },
+        { phone: { $regex: query, $options: 'i' } },
+        { groupName: { $regex: query, $options: 'i' } },
+        { notes: { $regex: query, $options: 'i' } }
+      ]
+    })
+    .populate('assignedHotel', 'name address')
+    .sort({ createdAt: -1 })
+    .limit(50);
+
+    res.json({
+      success: true,
+      count: clients.length,
+      query: query,
+      data: clients
+    });
+  } catch (error) {
+    console.error('Erreur recherche clients:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Erreur lors de la recherche'
     });
   }
 });
