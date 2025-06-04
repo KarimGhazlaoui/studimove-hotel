@@ -101,7 +101,7 @@ EventSchema.virtual('isFull').get(function() {
 
 // Méthodes d'instance
 EventSchema.methods.updateParticipantsCount = async function() {
-  const Client = mongoose.model('Client');
+  const Client = require('./Client'); // ← Import direct
   const count = await Client.countDocuments({ eventId: this._id });
   this.currentParticipants = count;
   return this.save();
