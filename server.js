@@ -3,6 +3,7 @@ const express = require('express');
 const dotenv = require('dotenv');
 const cors = require('cors');
 const connectDB = require('./config/db');
+const path = require('path');
 
 // Chargement des variables d'environnement
 dotenv.config();
@@ -31,18 +32,40 @@ const app = express();
 
 // Configuration CORS permissive pour les tests
 app.use(cors({
-  origin: '*',
-  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+  origin: [
+    'http://localhost:3000',
+    'http://localhost:3001', 
+    'https://studimove-hotel.vercel.app',
+    'https://studimove-frontend.vercel.app'
+  ],
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
+// Créer le dossier uploads s'il n'existe pas
+const fs = require('fs');
+if (!fs.existsSync('uploads')) {
+  fs.mkdirSync('uploads');
+}
+
 // Routes API
 app.use('/api/hotels', require('./routes/hotels'));
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/users', require('./routes/users'));
+app.use('/api/clients', require('./routes/clients'));
+
+// Si en production, servir les fichiers statiques du frontend
+if (process.env.NODE_ENV === 'production') {
+  app.use(express.static('client/build'));
+  
+  app.get('*', (req, res) => {
+    res.sendFile(path.resolve(__dirname, 'client', 'build', 'index.html'));
+  });
+}
 
 // Page d'accueil de l'API
 app.get('/', (req, res) => {
