@@ -57,6 +57,7 @@ app.use('/api/hotels', require('./routes/hotels'));
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/users', require('./routes/users'));
 app.use('/api/clients', require('./routes/clients'));
+app.use('/api/health', require('./routes/health'));
 
 // Si en production, servir les fichiers statiques du frontend
 if (process.env.NODE_ENV === 'production') {
@@ -106,7 +107,14 @@ app.use('*', (req, res) => {
   res.status(404).json({
     success: false,
     message: 'Route non trouvée',
-    availableRoutes: ['/api/auth', '/api/hotels', '/api/users', '/api/health']
+    requestedRoute: req.originalUrl,
+    availableRoutes: [
+      '/api/auth',
+      '/api/hotels', 
+      '/api/users',
+      '/api/clients',
+      '/api/health'
+    ]
   });
 });
 
