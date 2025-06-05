@@ -1,235 +1,395 @@
 const mongoose = require('mongoose');
 
-const ClientSchema = new mongoose.Schema({
-  // 🆕 AJOUT: Référence vers l'événement
+const clientSchema = new mongoose.Schema({
+  // 🎯 ÉVÉNEMENT (obligatoire - un client appartient à un événement)
   eventId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Event',
-    required: true,
+    required: [true, 'L\'ID de l\'événement est requis'],
     index: true
   },
 
+  // 👤 INFORMATIONS PERSONNELLES (obligatoires)
   firstName: {
     type: String,
-    required: true,
+    required: [true, 'Le prénom est requis'],
     trim: true,
-    maxlength: [50, 'Le prénom ne peut pas dépasser 50 caractères']
+    maxlength: [50, 'Le prénom ne peut dépasser 50 caractères']
   },
-
+  
   lastName: {
     type: String,
-    required: true,
+    required: [true, 'Le nom est requis'],
     trim: true,
-    maxlength: [50, 'Le nom ne peut pas dépasser 50 caractères']
+    maxlength: [50, 'Le nom ne peut dépasser 50 caractères']
   },
-
+  
   phone: {
     type: String,
-    required: true,
+    required: [true, 'Le téléphone est requis'],
     trim: true,
-    maxlength: [20, 'Le téléphone ne peut pas dépasser 20 caractères']
+    validate: {
+      validator: function(v) {
+        return /^[\d\s\+\-\(\)]{10,20}$/.test(v);
+      },
+      message: 'Format de téléphone invalide'
+    }
   },
-
+  
   email: {
     type: String,
     trim: true,
     lowercase: true,
-    maxlength: [100, 'L\'email ne peut pas dépasser 100 caractères']
-  },
-
-  // 🆕 AJOUT: Sexe pour l'assignation des chambres
-  gender: {
-    type: String,
-    required: true,
-    enum: {
-      values: ['Homme', 'Femme', 'Autre'],
-      message: 'Sexe invalide'
+    validate: {
+      validator: function(v) {
+        return !v || /^[\w\.-]+@[\w\.-]+\.\w+$/.test(v);
+      },
+      message: 'Format d\'email invalide'
     }
   },
 
-  clientType: {
+  // ⚧️ SEXE (obligatoire pour assignation par genre)
+  gender: {
     type: String,
-    required: true,
+    required: [true, 'Le sexe est requis pour l\'assignation des chambres'],
     enum: {
-      values: ['VIP', 'Influenceur', 'Staff', 'Standard'],
-      message: 'Type de client invalide'
+      values: ['Homme', 'Femme', 'Autre'],
+      message: 'Le sexe doit être Homme, Femme ou Autre'
     },
-    default: 'Standard'
+    index: true
   },
 
+  // 🏷️ TYPE DE CLIENT (obligatoire pour priorités d'assignation)
+  clientType: {
+    type: String,
+    required: [true, 'Le type de client est requis'],
+    enum: {
+      values: ['VIP', 'Influenceur', 'Staff', 'Standard'],
+      message: 'Le type doit être VIP, Influenceur, Staff ou Standard'
+    },
+    default: 'Standard',
+    index: true
+  },
+
+  // 👥 GROUPE (optionnel)
   groupName: {
     type: String,
     trim: true,
-    maxlength: [100, 'Le nom du groupe ne peut pas dépasser 100 caractères']
+    maxlength: [100, 'Le nom du groupe ne peut dépasser 100 caractères'],
+    index: true
   },
-
-  // 🆕 AJOUT: Relation de groupe pour la mixité
+  
   groupRelation: {
     type: String,
     enum: ['Famille', 'Couple', 'Amis', 'Collègues', 'Autre'],
     default: 'Amis'
   },
 
-  // 🏠 Assignation (dans le schéma existant)
-  assignment: {
-    hotelId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Hotel',
-      default: null
-    },
-    logicalRoomId: {
-      type: String,
-      default: null // "room_1", "room_2", etc.
-    },
-    assignmentType: {
-      type: String,
-      enum: ['auto', 'manual'],
-      default: null
-    },
-    assignedAt: {
-      type: Date,
-      default: null
-    },
-    assignedBy: {
-      type: String,
-      default: null
-    }
-  },
-
-  // 🏨 Gestion sur place
-  onSite: {
-    realRoomNumber: {
-      type: String,
-      default: null
-    },
-    depositPaid: {
-      type: Boolean,
-      default: false
-    },
-    depositAmount: {
-      type: Number,
-      default: 0
-    },
-    checkedInAt: {
-      type: Date,
-      default: null
-    },
-    checkedInBy: {
-      type: String,
-      default: null
-    }
-  },
-
+  // 📋 STATUT ET SUIVI
   status: {
     type: String,
     enum: {
-      values: ['En attente', 'Confirmé', 'Assigné', 'Présent', 'Absent', 'Annulé'],
+      values: ['En attente', 'Confirmé', 'Assigné', 'Arrivé', 'Parti'],
       message: 'Statut invalide'
     },
-    default: 'En attente'
+    default: 'En attente',
+    index: true
+  },
+
+  // 📝 NOTES ET PRÉFÉRENCES
+  notes: {
+    type: String,
+    maxlength: [500, 'Les notes ne peuvent dépasser 500 caractères'],
+    default: ''
   },
 
   preferences: {
-    roomType: String,
-    specialRequests: String,
-    accessibility: Boolean,
-    dietary: [String] // Végétarien, Sans gluten, etc.
-  },
-
-  paymentInfo: {
-    status: {
+    // Préférences d'hébergement
+    roomType: {
       type: String,
-      enum: ['Non payé', 'Acompte', 'Payé', 'Remboursé'],
-      default: 'Non payé'
+      enum: ['Standard', 'Suite', 'Familiale', 'Accessible'],
+      default: 'Standard'
     },
-    amount: { type: Number, default: 0 },
-    vipSupplement: { type: Number, default: 0 }
+    floorPreference: {
+      type: String,
+      enum: ['Bas', 'Haut', 'Indifférent'],
+      default: 'Indifférent'
+    },
+    specialNeeds: {
+      type: String,
+      maxlength: [200, 'Les besoins spéciaux ne peuvent dépasser 200 caractères']
+    },
+    // Préférences alimentaires pour événements
+    dietaryRestrictions: [{
+      type: String,
+      enum: ['Végétarien', 'Végétalien', 'Halal', 'Casher', 'Sans gluten', 'Allergies']
+    }],
+    allergies: String
   },
 
-  notes: {
+  // 🏨 ASSIGNATION HÔTEL
+  assignedHotel: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Hotel',
+    index: true
+  },
+
+  // 🛏️ ASSIGNATION CHAMBRE
+  logicalRoomId: {
     type: String,
-    trim: true,
-    maxlength: [500, 'Les notes ne peuvent pas dépasser 500 caractères']
+    trim: true
+  },
+  
+  realRoomNumber: {
+    type: String, 
+    trim: true
   },
 
-  emergencyContact: {
-    name: String,
-    phone: String,
-    relation: String
+  bedAssignment: {
+    type: String,
+    enum: ['Lit 1', 'Lit 2', 'Lit 3', 'Lit 4'],
+    sparse: true
   },
 
-  // Metadata
+  assignmentType: {
+    type: String,
+    enum: ['auto', 'manual'],
+    default: 'auto'
+  },
+
+  assignmentDate: {
+    type: Date
+  },
+
+  assignedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  },
+
+  // 📊 MÉTADONNÉES
   source: {
     type: String,
-    enum: ['Manuel', 'CSV', 'API', 'Web'],
-    default: 'Manuel'
+    enum: ['Manuel', 'CSV', 'API'],
+    default: 'Manuel',
+    index: true
   },
 
-  importBatch: String, // ID du lot d'import pour traçabilité
+  importBatch: {
+    type: String,
+    index: true
+  },
 
+  // 🕐 TIMESTAMPS
+  createdAt: {
+    type: Date,
+    default: Date.now,
+    index: true
+  },
+
+  updatedAt: {
+    type: Date,
+    default: Date.now
+  },
+
+  // 🗓️ DATES IMPORTANTES
+  confirmationDate: Date,
+  arrivalDate: Date,
+  departureDate: Date
 }, {
-  timestamps: true
+  // Options du schéma
+  timestamps: true, // Ajoute automatiquement createdAt et updatedAt
+  toJSON: { virtuals: true },
+  toObject: { virtuals: true }
 });
 
-// 🆕 Index composés pour optimiser les recherches par événement
-ClientSchema.index({ eventId: 1, status: 1 });
-ClientSchema.index({ eventId: 1, clientType: 1 });
-ClientSchema.index({ eventId: 1, gender: 1 });
-ClientSchema.index({ eventId: 1, groupName: 1 });
-ClientSchema.index({ eventId: 1, assignedHotel: 1 });
+// 🔍 INDEX COMPOSÉS POUR PERFORMANCE
+clientSchema.index({ eventId: 1, phone: 1 }, { unique: true }); // Unicité par événement
+clientSchema.index({ eventId: 1, groupName: 1 }); // Requêtes par groupe
+clientSchema.index({ eventId: 1, clientType: 1 }); // Requêtes par type
+clientSchema.index({ eventId: 1, gender: 1 }); // Requêtes par sexe
+clientSchema.index({ eventId: 1, status: 1 }); // Requêtes par statut
+clientSchema.index({ assignedHotel: 1, status: 1 }); // Clients par hôtel
 
-// 🆕 CONTRAINTE: Téléphone unique par événement (pas globalement)
-ClientSchema.index({ eventId: 1, phone: 1 }, { unique: true });
-
-// Méthodes virtuelles
-ClientSchema.virtual('fullName').get(function() {
+// 📐 PROPRIÉTÉS VIRTUELLES
+clientSchema.virtual('fullName').get(function() {
   return `${this.firstName} ${this.lastName}`;
 });
 
-ClientSchema.virtual('isVIP').get(function() {
-  return this.clientType === 'VIP';
+clientSchema.virtual('displayPhone').get(function() {
+  // Formate le téléphone pour affichage
+  const phone = this.phone.replace(/\D/g, '');
+  if (phone.length === 10) {
+    return phone.replace(/(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})/, '$1 $2 $3 $4 $5');
+  }
+  return this.phone;
 });
 
-ClientSchema.virtual('canBeMixed').get(function() {
-  return this.clientType === 'VIP' || this.clientType === 'Influenceur' || 
-         (this.groupRelation === 'Famille' || this.groupRelation === 'Couple');
+clientSchema.virtual('isAssigned').get(function() {
+  return !!this.assignedHotel;
 });
 
-ClientSchema.virtual('isAssigned').get(function() {
-  return this.assignedHotel && this.roomAssignment && this.roomAssignment.roomId;
+clientSchema.virtual('isInGroup').get(function() {
+  return !!this.groupName;
 });
 
-// Méthodes d'instance
-ClientSchema.methods.assignToRoom = function(roomData) {
-  this.roomAssignment = {
-    roomId: roomData.roomId,
-    roomType: roomData.roomType,
-    roomCapacity: roomData.capacity,
-    roommates: roomData.roommates || []
-  };
+clientSchema.virtual('isPriority').get(function() {
+  return ['VIP', 'Influenceur', 'Staff'].includes(this.clientType);
+});
+
+// 🔧 MÉTHODES D'INSTANCE
+clientSchema.methods.assignToHotel = function(hotelId, roomId, assignedByUserId) {
+  this.assignedHotel = hotelId;
+  this.logicalRoomId = roomId;
+  this.assignmentDate = new Date();
+  this.assignedBy = assignedByUserId;
   this.status = 'Assigné';
   return this.save();
 };
 
-ClientSchema.methods.unassignRoom = function() {
-  this.roomAssignment = undefined;
+clientSchema.methods.unassign = function() {
+  this.assignedHotel = null;
+  this.logicalRoomId = null;
+  this.realRoomNumber = null;
+  this.bedAssignment = null;
+  this.assignmentDate = null;
+  this.assignedBy = null;
   this.status = 'Confirmé';
   return this.save();
 };
 
-// Middleware pre-save
-ClientSchema.pre('save', function(next) {
-  // Validation des groupes
-  if (this.clientType === 'Groupe' && !this.groupName) {
-    return next(new Error('Le nom du groupe est requis pour un client de type Groupe'));
-  }
-  
-  if (this.clientType === 'Solo') {
+clientSchema.methods.markAsArrived = function() {
+  this.status = 'Arrivé';
+  this.arrivalDate = new Date();
+  return this.save();
+};
+
+// 📊 MÉTHODES STATIQUES
+clientSchema.statics.getEventStats = async function(eventId) {
+  const stats = await this.aggregate([
+    { $match: { eventId: mongoose.Types.ObjectId(eventId) } },
+    {
+      $group: {
+        _id: null,
+        total: { $sum: 1 },
+        byGender: {
+          $push: {
+            gender: '$gender',
+            type: '$clientType',
+            assigned: { $cond: [{ $ne: ['$assignedHotel', null] }, 1, 0] }
+          }
+        },
+        assigned: { $sum: { $cond: [{ $ne: ['$assignedHotel', null] }, 1, 0] } },
+        vips: { $sum: { $cond: [{ $eq: ['$clientType', 'VIP'] }, 1, 0] } },
+        influenceurs: { $sum: { $cond: [{ $eq: ['$clientType', 'Influenceur'] }, 1, 0] } },
+        staff: { $sum: { $cond: [{ $eq: ['$clientType', 'Staff'] }, 1, 0] } },
+        groups: { $addToSet: '$groupName' }
+      }
+    }
+  ]);
+
+  return stats[0] || {
+    total: 0,
+    assigned: 0,
+    vips: 0,
+    influenceurs: 0,
+    staff: 0,
+    groups: []
+  };
+};
+
+clientSchema.statics.getGroupSizes = async function(eventId) {
+  return await this.aggregate([
+    { 
+      $match: { 
+        eventId: mongoose.Types.ObjectId(eventId),
+        groupName: { $ne: null, $ne: '' }
+      } 
+    },
+    {
+      $group: {
+        _id: '$groupName',
+        memberCount: { $sum: 1 },
+        genders: { $addToSet: '$gender' },
+        types: { $addToSet: '$clientType' },
+        members: {
+          $push: {
+            id: '$_id',
+            name: '$fullName',
+            gender: '$gender',
+            type: '$clientType',
+            phone: '$phone',
+            assigned: '$assignedHotel'
+          }
+        }
+      }
+    },
+    {
+      $addFields: {
+        isMixed: { $gt: [{ $size: '$genders' }, 1] },
+        hasPriority: {
+          $anyElementTrue: {
+            $map: {
+              input: '$types',
+              as: 'type',
+              in: { $in: ['$$type', ['VIP', 'Influenceur', 'Staff']] }
+            }
+          }
+        }
+      }
+    },
+    { $sort: { _id: 1 } }
+  ]);
+};
+
+// 🔄 MIDDLEWARE PRE-SAVE
+clientSchema.pre('save', function(next) {
+  // Mise à jour automatique du timestamp
+  this.updatedAt = new Date();
+
+  // Nettoyage des données
+  if (this.groupName === '' || this.groupName === 'solo') {
     this.groupName = null;
-    this.groupSize = 1;
   }
-  
+
+  // Validation logique métier
+  if (this.clientType === 'VIP' && !this.notes) {
+    this.notes = 'Client VIP - Traitement prioritaire';
+  }
+
   next();
 });
 
-module.exports = mongoose.model('Client', ClientSchema);
+// 🔄 MIDDLEWARE POST-SAVE
+clientSchema.post('save', async function(doc) {
+  // Mettre à jour les statistiques de l'événement
+  try {
+    const Event = mongoose.model('Event');
+    const event = await Event.findById(doc.eventId);
+    if (event) {
+      await event.updateParticipantsCount();
+    }
+  } catch (error) {
+    console.error('Erreur mise à jour stats événement:', error);
+  }
+});
+
+// 🔄 MIDDLEWARE POST-REMOVE
+clientSchema.post('findOneAndDelete', async function(doc) {
+  if (doc) {
+    // Nettoyer les assignations d'hôtel
+    if (doc.assignedHotel) {
+      try {
+        const Hotel = mongoose.model('Hotel');
+        const hotel = await Hotel.findById(doc.assignedHotel);
+        if (hotel) {
+          await hotel.updateAssignedClients();
+        }
+      } catch (error) {
+        console.error('Erreur nettoyage hotel:', error);
+      }
+    }
+  }
+});
+
+// 🏷️ EXPORT DU MODÈLE
+module.exports = mongoose.model('Client', clientSchema);
