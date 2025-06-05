@@ -1,4 +1,3 @@
-const mongoose = require('mongoose');
 const express = require('express');
 const router = express.Router();
 const Client = require('../models/Client');
@@ -7,6 +6,7 @@ const Hotel = require('../models/Hotel');
 const multer = require('multer');
 const csv = require('csv-parser');
 const fs = require('fs');
+const mongoose = require('mongoose');
 
 // Configuration multer pour l'upload CSV
 const upload = multer({ dest: 'uploads/' });
@@ -17,12 +17,17 @@ router.get('/', async (req, res) => {
     const { eventId, search, clientType, status, gender, groupName } = req.query;
     let filter = {};
 
-    // ✅ OPTIONNEL: Filtrer par événement (plus obligatoire)
-    if (eventId) {
-      filter.eventId = eventId;
+    // 🆕 OBLIGATOIRE: Filtrer par événement
+    if (!eventId) {
+      return res.status(400).json({
+        success: false,
+        message: 'L\'ID de l\'événement est requis'
+      });
     }
 
-    // Autres filtres (gardez votre code existant)
+    filter.eventId = eventId;
+
+    // Autres filtres
     if (search) {
       filter.$or = [
         { firstName: { $regex: search, $options: 'i' } },
@@ -69,12 +74,12 @@ router.get('/groups', async (req, res) => {
     }
 
     const groups = await Client.aggregate([
-      {
-        $match: {
+      { 
+        $match: { 
           eventId: mongoose.Types.ObjectId(eventId),
-          clientType: 'Groupe',
-          groupName: { $ne: null }
-        }
+          clientType: 'Groupe', 
+          groupName: { $ne: null } 
+        } 
       },
       {
         $group: {
@@ -170,9 +175,9 @@ router.post('/', async (req, res) => {
     }
 
     // 🆕 Vérification d'unicité par événement (pas globale)
-    const existingClient = await Client.findOne({
+    const existingClient = await Client.findOne({ 
       eventId: eventId,
-      phone: phone.trim()
+      phone: phone.trim() 
     });
     
     if (existingClient) {
@@ -189,7 +194,7 @@ router.post('/', async (req, res) => {
       phone: phone.trim(),
       email: email ? email.trim() : '',
       gender: gender,
-      clientType: clientType || 'Solo',
+      clientType: clientType || 'Standard',
       groupSize: parseInt(groupSize) || 1,
       groupRelation: groupRelation || 'Amis',
       preferences: preferences || {},
@@ -219,6 +224,33 @@ router.post('/', async (req, res) => {
       success: false,
       message: 'Erreur serveur lors de la création du client',
       error: error.message
+    });
+  }
+});
+
+// GET /api/clients/:id - Récupérer un client par ID
+router.get('/:id', async (req, res) => {
+  try {
+    const client = await Client.findById(req.params.id)
+      .populate('assignedHotel', 'name address')
+      .populate('eventId', 'name country city');
+
+    if (!client) {
+      return res.status(404).json({
+        success: false,
+        message: 'Client non trouvé'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: client
+    });
+  } catch (error) {
+    console.error('Erreur GET client:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Erreur serveur lors de la récupération du client'
     });
   }
 });
@@ -260,10 +292,10 @@ router.put('/:id', async (req, res) => {
 
     // Vérifier si le téléphone existe déjà dans le même événement
     if (phone && phone !== client.phone) {
-      const existingClient = await Client.findOne({
+      const existingClient = await Client.findOne({ 
         eventId: client.eventId,
         phone: phone.trim(),
-        _id: { $ne: req.params.id }
+        _id: { $ne: req.params.id } 
       });
       
       if (existingClient) {
@@ -290,7 +322,7 @@ router.put('/:id', async (req, res) => {
     // Gérer le nom de groupe
     if (clientType === 'Groupe' && groupName) {
       updateData.groupName = groupName.trim();
-    } else if (clientType === 'Solo') {
+    } else if (clientType === 'Standard') {
       updateData.groupName = null;
       updateData.groupSize = 1;
     }
@@ -402,18 +434,27 @@ router.delete('/event/:eventId', async (req, res) => {
   }
 });
 
-// 🆕 POST /api/clients/import-csv - Import avec validation corrigée
+// 🆕 POST /api/clients/import-csv - Import CSV avec sélection d'événement
 router.post('/import-csv', upload.single('csvFile'), async (req, res) => {
   try {
     const { eventId } = req.body;
 
-    if (!req.file || !eventId) {
+    // Validation des paramètres
+    if (!req.file) {
       return res.status(400).json({
         success: false,
-        message: 'Fichier CSV et ID événement requis'
+        message: 'Aucun fichier CSV fourni'
       });
     }
 
+    if (!eventId) {
+      return res.status(400).json({
+        success: false,
+        message: 'L\'ID de l\'événement est requis'
+      });
+    }
+
+    // Vérifier que l'événement existe
     const event = await Event.findById(eventId);
     if (!event) {
       if (req.file) fs.unlinkSync(req.file.path);
@@ -427,8 +468,10 @@ router.post('/import-csv', upload.single('csvFile'), async (req, res) => {
     const errors = [];
     let imported = 0;
     let skipped = 0;
-    const clientsToCreate = [];
 
+    console.log(`📥 Import CSV pour l'événement: ${event.name}`);
+
+    // Lire le fichier CSV
     const stream = fs.createReadStream(req.file.path)
       .pipe(csv())
       .on('data', (data) => results.push(data))
@@ -436,145 +479,171 @@ router.post('/import-csv', upload.single('csvFile'), async (req, res) => {
         try {
           console.log(`📊 Traitement de ${results.length} lignes CSV`);
 
-          // 🔍 ÉTAPE 1: VALIDATION ET PRÉPARATION
+          // Génération d'un ID de lot pour la traçabilité
+          const importBatch = `import_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+          // 🆕 ÉTAPE 1: VALIDATION ET PRÉPARATION DES DONNÉES
+          const clientsToCreate = [];
+
           for (let i = 0; i < results.length; i++) {
             const row = results[i];
-            const lineNum = i + 2;
-
-            // 🔍 DEBUG: Ajoutons ce log pour voir le contenu exact
-            console.log(`🔍 Ligne ${lineNum} - Contenu brut:`, row);
-            console.log(`🔍 Prenom: "${row.prenom}", Nom: "${row.nom}", Tel: "${row.telephone}", Sexe: "${row.sexe}"`);
+            const lineNum = i + 2; // +2 car ligne 1 = headers
 
             try {
-              // ✅ VALIDATION OBLIGATOIRE (CORRIGÉ)
-              if (!row.prenom || !row.nom || !row.telephone || !row.sexe || !row.type_client) {
-                errors.push(`Ligne ${lineNum}: Prénom, nom, téléphone, sexe et type sont obligatoires`);
+              console.log(`🔍 Ligne ${lineNum} - Contenu brut:`, row);
+
+              // ✅ VALIDATION DES CHAMPS OBLIGATOIRES
+              const prenom = row.prenom ? row.prenom.trim() : '';
+              const nom = row.nom ? row.nom.trim() : '';
+              const telephone = row.telephone ? row.telephone.trim() : '';
+              const sexe = row.sexe ? row.sexe.trim() : '';
+
+              console.log(`🔍 Prenom: "${prenom}", Nom: "${nom}", Tel: "${telephone}", Sexe: "${sexe}"`);
+
+              if (!prenom || !nom || !telephone || !sexe) {
+                errors.push(`Ligne ${lineNum}: Prénom, nom, téléphone et sexe sont requis`);
                 continue;
               }
 
-              // Validation du sexe
+              // ✅ VALIDATION DU SEXE
               const validGenders = ['Homme', 'Femme', 'Autre'];
-              const gender = row.sexe.trim();
+              const gender = sexe;
               console.log(`🔍 Validation sexe: "${gender}" - Valide: ${validGenders.includes(gender)}`);
-
+              
               if (!validGenders.includes(gender)) {
-                console.log(`❌ Sexe invalide détecté: "${gender}"`);
                 errors.push(`Ligne ${lineNum}: Sexe invalide "${gender}". Valeurs acceptées: ${validGenders.join(', ')}`);
                 continue;
               }
 
-              // ✅ VALIDATION DU TYPE (CORRIGÉ)
-              const validTypes = ['solo', 'vip', 'influenceur', 'staff'];
-              const rawType = row.type_client.trim().toLowerCase();
-              const typeMapping = {
-                'solo': 'Standard',
-                'vip': 'VIP', 
-                'influenceur': 'Influenceur',
-                'staff': 'Staff'
-              };
-
-              const clientType = typeMapping[rawType];
-              if (!clientType) {
-                errors.push(`Ligne ${lineNum}: Type "${row.type_client}" invalide. Valeurs: ${validTypes.join(', ')}`);
-                continue;
-              }
-
-              // ✅ PHONE CORRIGÉ
-              const phone = row.telephone.trim();
-
-              // Vérifier si le client existe déjà dans cet événement
-              console.log(`🔍 Vérification client existant - Event: ${eventId}, Tel: ${phone}`);
-              const existingClient = await Client.findOne({
+              // ✅ VÉRIFIER SI CLIENT DÉJÀ EXISTANT
+              console.log(`🔍 Vérification client existant - Event: ${eventId}, Tel: ${telephone}`);
+              const existingClient = await Client.findOne({ 
                 eventId: eventId,
-                phone: phone
+                phone: telephone
               });
-
+              
               if (existingClient) {
-                console.log(`❌ Client existant trouvé:`, existingClient._id);
-                errors.push(`Ligne ${lineNum}: Client avec téléphone ${phone} existe déjà dans cet événement`);
+                errors.push(`Ligne ${lineNum}: Client avec téléphone ${telephone} existe déjà dans cet événement`);
                 skipped++;
                 continue;
               }
 
               console.log(`✅ Ligne ${lineNum} - Validations passées, création du client...`);
 
-              // ✅ DÉTERMINER GROUPE
+              // ✅ VALIDATION DU TYPE
+              const validTypes = ['solo', 'vip', 'influenceur', 'staff'];
+              const rawType = row.type_client ? row.type_client.trim().toLowerCase() : 'solo';
+              const typeMapping = {
+                'solo': 'Standard',     // ✅ CORRIGÉ
+                'vip': 'VIP', 
+                'influenceur': 'Influenceur',
+                'staff': 'Staff'
+              };
+              
+              const clientType = typeMapping[rawType] || 'Standard';
+
+              // ✅ DÉTERMINER LE NOM DE GROUPE
               let groupName = null;
-              if (row.groupe && row.groupe.trim().toLowerCase() !== 'solo') {
+              if (row.groupe && row.groupe.trim() && row.groupe.trim().toLowerCase() !== 'solo') {
                 groupName = row.groupe.trim();
               }
 
               // ✅ PRÉPARER LE CLIENT
               const clientData = {
                 eventId: eventId,
-                firstName: row.prenom.trim(),
-                lastName: row.nom.trim(),
-                phone: phone,
+                firstName: prenom,
+                lastName: nom,
+                phone: telephone,
                 email: row.email ? row.email.trim() : '',
                 gender: gender,
                 clientType: clientType,
                 groupName: groupName,
+                groupSize: 1, // Sera mis à jour après
                 notes: row.notes || '',
-                source: 'CSV'
+                source: 'CSV',
+                importBatch: importBatch
               };
 
               clientsToCreate.push(clientData);
 
             } catch (error) {
-              console.error(`💥 ERREUR LIGNE ${lineNum}:`, error);
-              console.error(`💥 STACK:`, error.stack);
+              console.error(`❌ Erreur ligne ${lineNum}:`, error);
               errors.push(`Ligne ${lineNum}: ${error.message}`);
             }
           }
 
           // 🧮 ÉTAPE 2: CALCUL DES TAILLES DE GROUPE
           const groupSizes = {};
+          let staffCount = 0;
+
           clientsToCreate.forEach(client => {
             if (client.groupName) {
+              // Groupes nommés
               groupSizes[client.groupName] = (groupSizes[client.groupName] || 0) + 1;
+            } else if (client.clientType === 'Staff') {
+              // Compter les staffs
+              staffCount++;
             }
           });
+
           console.log('📊 Tailles de groupes calculées:', groupSizes);
+          console.log('👥 Nombre total de staffs:', staffCount);
+
+          // 🆕 ÉTAPE 2.5: APPLIQUER LES TAILLES AUX CLIENTS
+          clientsToCreate.forEach(client => {
+            if (client.groupName && groupSizes[client.groupName]) {
+              // Groupe nommé
+              client.groupSize = groupSizes[client.groupName];
+              console.log(`📏 Client ${client.firstName} ${client.lastName} - Groupe: ${client.groupName} - Taille: ${client.groupSize}`);
+            } else if (client.clientType === 'Staff') {
+              // Staff = taille = nombre total de staffs
+              client.groupSize = staffCount;
+              console.log(`👥 Staff ${client.firstName} ${client.lastName} - Taille équipe: ${client.groupSize}`);
+            } else {
+              // Solo, VIP, Influenceur sans groupe
+              client.groupSize = 1;
+              console.log(`👤 Client ${client.firstName} ${client.lastName} - Solo - Taille: 1`);
+            }
+          });
 
           // 💾 ÉTAPE 3: CRÉATION EN BASE
           for (const clientData of clientsToCreate) {
             try {
               console.log(`🚀 Tentative création client:`, clientData);
+
               const client = new Client(clientData);
               await client.save();
-              console.log(`✅ Client créé:`, client._id);
               imported++;
 
+              console.log(`✅ Client créé:`, client._id);
               console.log(`✅ Client créé: ${client.firstName} ${client.lastName} - ${client.clientType} - Groupe: ${client.groupName || 'Solo'}`);
+
             } catch (error) {
-              console.error(`💥 ERREUR CRÉATION CLIENT:`, error);
-              console.error(`💥 STACK:`, error.stack);
+              console.warn(`💥 ERREUR CRÉATION CLIENT:`, error);
+              console.warn(`💥 STACK:`, error.stack);
               errors.push(`Client ${clientData.firstName} ${clientData.lastName}: ${error.message}`);
             }
           }
 
-          // 🧹 NETTOYAGE
+          // Supprimer le fichier temporaire
           fs.unlinkSync(req.file.path);
-          await event.updateParticipantsCount();
 
-          // 📊 STATISTIQUES FINALES
-          const groupStats = Object.entries(groupSizes).map(([name, size]) => ({
-            groupName: name,
-            memberCount: size
-          }));
+          // Mettre à jour les statistiques de l'événement
+          await event.updateParticipantsCount();
 
           console.log(`✅ Import terminé: ${imported} clients, ${skipped} ignorés, ${errors.length} erreurs`);
 
           res.json({
             success: true,
-            message: `Import: ${imported} clients créés, ${skipped} ignorés, ${errors.length} erreurs`,
+            message: `Import terminé pour "${event.name}": ${imported} clients importés, ${skipped} ignorés, ${errors.length} erreurs`,
             data: {
+              event: event.name,
               imported,
               skipped,
               errorCount: errors.length,
-              groupStats
+              importBatch
             },
-            errors: errors.slice(0, 15) // Limiter l'affichage
+            errors: errors.slice(0, 20) // Limiter les erreurs affichées
           });
 
         } catch (error) {
@@ -593,44 +662,8 @@ router.post('/import-csv', upload.single('csvFile'), async (req, res) => {
     if (req.file) fs.unlinkSync(req.file.path);
     res.status(500).json({
       success: false,
-      message: 'Erreur serveur lors de l\'import CSV'
-    });
-  }
-});
-
-// 🆕 GET /api/clients/group-sizes/:eventId - Calculer les tailles de groupe
-router.get('/group-sizes/:eventId', async (req, res) => {
-  try {
-    const { eventId } = req.params;
-
-    const groupSizes = await Client.aggregate([
-      { $match: { eventId: mongoose.Types.ObjectId(eventId), groupName: { $ne: null } } },
-      {
-        $group: {
-          _id: '$groupName',
-          memberCount: { $sum: 1 },
-          members: {
-            $push: {
-              id: '$_id',
-              name: { $concat: ['$firstName', ' ', '$lastName'] },
-              gender: '$gender',
-              clientType: '$clientType'
-            }
-          }
-        }
-      },
-      { $sort: { _id: 1 } }
-    ]);
-
-    res.json({
-      success: true,
-      data: groupSizes
-    });
-  } catch (error) {
-    console.error('Erreur calcul tailles groupes:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Erreur lors du calcul des tailles de groupe'
+      message: 'Erreur serveur lors de l\'import CSV',
+      error: error.message
     });
   }
 });
