@@ -402,27 +402,18 @@ router.delete('/event/:eventId', async (req, res) => {
   }
 });
 
-// 🆕 POST /api/clients/import-csv - Import CSV avec sélection d'événement
+// 🆕 POST /api/clients/import-csv - Import avec calcul automatique des tailles
 router.post('/import-csv', upload.single('csvFile'), async (req, res) => {
   try {
-    const { eventId } = req.body; // 🆕 Récupéré du formulaire
+    const { eventId } = req.body;
 
-    // Validation des paramètres
-    if (!req.file) {
+    if (!req.file || !eventId) {
       return res.status(400).json({
         success: false,
-        message: 'Aucun fichier CSV fourni'
+        message: 'Fichier CSV et ID événement requis'
       });
     }
 
-    if (!eventId) {
-      return res.status(400).json({
-        success: false,
-        message: 'L\'ID de l\'événement est requis'
-      });
-    }
-
-    // Vérifier que l'événement existe
     const event = await Event.findById(eventId);
     if (!event) {
       if (req.file) fs.unlinkSync(req.file.path);
@@ -435,141 +426,142 @@ router.post('/import-csv', upload.single('csvFile'), async (req, res) => {
     const results = [];
     const errors = [];
     let imported = 0;
-    let skipped = 0;
+    const clientsToCreate = [];
 
-    console.log(`📥 Import CSV pour l'événement: ${event.name}`);
-
-    // Lire le fichier CSV
     const stream = fs.createReadStream(req.file.path)
       .pipe(csv())
       .on('data', (data) => results.push(data))
       .on('end', async () => {
         try {
-          console.log(`📊 ${results.length} lignes à traiter`);
+          console.log(`📊 Traitement de ${results.length} lignes CSV`);
 
-          // Génération d'un ID de lot pour la traçabilité
-          const importBatch = `import_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-
+          // 🔍 ÉTAPE 1: VALIDATION ET PRÉPARATION
           for (let i = 0; i < results.length; i++) {
             const row = results[i];
-            const lineNum = i + 2; // +2 car ligne 1 = headers
+            const lineNum = i + 2;
 
             try {
-              // Validation des champs requis
-              if (!row.prenom || !row.nom || !row.telephone || !row.sexe) {
-                errors.push(`Ligne ${lineNum}: Prénom, nom, téléphone et sexe requis`);
+              // ✅ VALIDATION OBLIGATOIRE
+              if (!row.prenom || !row.nom || !row.telephone || !row.sexe || !row.type) {
+                errors.push(`Ligne ${lineNum}: Prénom, nom, téléphone, sexe et type sont obligatoires`);
                 continue;
               }
 
-              // Validation du sexe
+              // ✅ VALIDATION DU SEXE
               const validGenders = ['Homme', 'Femme', 'Autre'];
               const gender = row.sexe.trim();
               if (!validGenders.includes(gender)) {
-                errors.push(`Ligne ${lineNum}: Sexe invalide "${gender}". Valeurs acceptées: ${validGenders.join(', ')}`);
+                errors.push(`Ligne ${lineNum}: Sexe "${gender}" invalide. Valeurs: ${validGenders.join(', ')}`);
                 continue;
               }
 
-              // Vérifier si le client existe déjà dans cet événement
+              // ✅ VALIDATION DU TYPE
+              const validTypes = ['VIP', 'Influenceur', 'Staff', 'Standard'];
+              const clientType = row.type.trim();
+              if (!validTypes.includes(clientType)) {
+                errors.push(`Ligne ${lineNum}: Type "${clientType}" invalide. Valeurs: ${validTypes.join(', ')}`);
+                continue;
+              }
+
+              // ✅ VÉRIFIER UNICITÉ PAR ÉVÉNEMENT
+              const phone = row.telephone.trim();
               const existingClient = await Client.findOne({ 
                 eventId: eventId,
-                phone: row.telephone.trim() 
+                phone: phone 
               });
               
               if (existingClient) {
-                errors.push(`Ligne ${lineNum}: Client avec téléphone ${row.telephone} existe déjà dans cet événement`);
-                skipped++;
+                errors.push(`Ligne ${lineNum}: Téléphone ${phone} existe déjà`);
                 continue;
               }
 
-              // Déterminer le type de client et nom de groupe
-              let clientType = 'Solo';
-              let clientGroupName = null;
-              let groupRelation = 'Amis';
-
-              if (row.type_client && row.type_client.trim()) {
-                const typeValue = row.type_client.trim().toLowerCase();
-                const typeMapping = {
-                  'vip': 'VIP',
-                  'influenceur': 'Influenceur', 
-                  'influenceuse': 'Influenceur',
-                  'staff': 'Staff',
-                  'groupe': 'Groupe',
-                  'solo': 'Solo'
-                };
-                
-                clientType = typeMapping[typeValue] || 'Solo';
+              // Vérifier aussi dans les clients à créer (doublons dans le CSV)
+              const duplicateInBatch = clientsToCreate.find(c => c.phone === phone);
+              if (duplicateInBatch) {
+                errors.push(`Ligne ${lineNum}: Téléphone ${phone} en doublon dans le CSV`);
+                continue;
               }
 
-              if (row.groupe && row.groupe.trim() && row.groupe.trim().toLowerCase() !== 'solo') {
-                clientType = 'Groupe';
-                clientGroupName = row.groupe.trim();
+              // ✅ DÉTERMINER GROUPE
+              let groupName = null;
+              if (row.groupe && row.groupe.trim().toLowerCase() !== 'solo') {
+                groupName = row.groupe.trim();
               }
 
-              // Déterminer la relation du groupe
-              if (row.relation_groupe && row.relation_groupe.trim()) {
-                const validRelations = ['Famille', 'Couple', 'Amis', 'Collègues', 'Autre'];
-                const relation = row.relation_groupe.trim();
-                if (validRelations.includes(relation)) {
-                  groupRelation = relation;
-                }
-              }
-
-              // Déterminer la taille du groupe
-              let groupSize = parseInt(row.taille_groupe) || 1;
-              if (clientType === 'Solo') {
-                groupSize = 1;
-              } else if (clientType === 'Groupe' && groupSize < 2) {
-                groupSize = 2; // Minimum pour un groupe
-              }
-
-              // Créer le client
+              // ✅ PRÉPARER LE CLIENT
               const clientData = {
                 eventId: eventId,
                 firstName: row.prenom.trim(),
                 lastName: row.nom.trim(),
-                phone: row.telephone.trim(),
+                phone: phone,
                 email: row.email ? row.email.trim() : '',
                 gender: gender,
                 clientType: clientType,
-                groupName: clientGroupName,
-                groupSize: groupSize,
-                groupRelation: groupRelation,
+                groupName: groupName,
                 notes: row.notes || '',
                 source: 'CSV',
-                importBatch: importBatch
+                lineNum // Pour debug
               };
 
-              console.log(`Ligne ${lineNum}: Création client ${clientData.firstName} ${clientData.lastName} - Type: ${clientData.clientType}`);
-
-              const client = new Client(clientData);
-              await client.save();
-              imported++;
+              clientsToCreate.push(clientData);
 
             } catch (error) {
-              console.error(`❌ Erreur ligne ${lineNum}:`, error);
               errors.push(`Ligne ${lineNum}: ${error.message}`);
             }
           }
 
-          // Supprimer le fichier temporaire
-          fs.unlinkSync(req.file.path);
+          // 🧮 ÉTAPE 2: CALCUL DES TAILLES DE GROUPE
+          const groupSizes = {};
+          clientsToCreate.forEach(client => {
+            if (client.groupName) {
+              groupSizes[client.groupName] = (groupSizes[client.groupName] || 0) + 1;
+            }
+          });
 
-          // Mettre à jour les statistiques de l'événement
+          console.log('📊 Tailles de groupes calculées:', groupSizes);
+
+          // 💾 ÉTAPE 3: CRÉATION EN BASE
+          for (const clientData of clientsToCreate) {
+            try {
+              // Ajouter la taille de groupe calculée pour info (pas stockée)
+              if (clientData.groupName) {
+                clientData._calculatedGroupSize = groupSizes[clientData.groupName];
+              }
+
+              delete clientData.lineNum; // Nettoyer
+              
+              const client = new Client(clientData);
+              await client.save();
+              imported++;
+
+              console.log(`✅ Client créé: ${client.firstName} ${client.lastName} - ${client.clientType} - Groupe: ${client.groupName || 'Solo'}`);
+
+            } catch (error) {
+              errors.push(`Client ${clientData.firstName} ${clientData.lastName}: ${error.message}`);
+            }
+          }
+
+          // 🧹 NETTOYAGE
+          fs.unlinkSync(req.file.path);
           await event.updateParticipantsCount();
 
-          console.log(`✅ Import terminé: ${imported} importés, ${skipped} ignorés, ${errors.length} erreurs`);
+          // 📊 STATISTIQUES FINALES
+          const groupStats = Object.entries(groupSizes).map(([name, size]) => ({
+            groupName: name,
+            memberCount: size
+          }));
+
+          console.log(`✅ Import terminé: ${imported} clients, ${errors.length} erreurs`);
 
           res.json({
             success: true,
-            message: `Import terminé pour "${event.name}": ${imported} clients importés, ${skipped} ignorés, ${errors.length} erreurs`,
-            data: {
-              event: event.name,
-              imported,
-              skipped,
+            message: `Import: ${imported} clients créés, ${errors.length} erreurs`,
+            data: { 
+              imported, 
               errorCount: errors.length,
-              importBatch
+              groupStats 
             },
-            errors: errors.slice(0, 20) // Limiter les erreurs affichées
+            errors: errors.slice(0, 15) // Limiter l'affichage
           });
 
         } catch (error) {
@@ -588,8 +580,44 @@ router.post('/import-csv', upload.single('csvFile'), async (req, res) => {
     if (req.file) fs.unlinkSync(req.file.path);
     res.status(500).json({
       success: false,
-      message: 'Erreur serveur lors de l\'import CSV',
-      error: error.message
+      message: 'Erreur serveur lors de l\'import CSV'
+    });
+  }
+});
+
+// 🆕 GET /api/clients/group-sizes/:eventId - Calculer les tailles de groupe
+router.get('/group-sizes/:eventId', async (req, res) => {
+  try {
+    const { eventId } = req.params;
+
+    const groupSizes = await Client.aggregate([
+      { $match: { eventId: mongoose.Types.ObjectId(eventId), groupName: { $ne: null } } },
+      {
+        $group: {
+          _id: '$groupName',
+          memberCount: { $sum: 1 },
+          members: {
+            $push: {
+              id: '$_id',
+              name: { $concat: ['$firstName', ' ', '$lastName'] },
+              gender: '$gender',
+              clientType: '$clientType'
+            }
+          }
+        }
+      },
+      { $sort: { _id: 1 } }
+    ]);
+
+    res.json({
+      success: true,
+      data: groupSizes
+    });
+  } catch (error) {
+    console.error('Erreur calcul tailles groupes:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Erreur lors du calcul des tailles de groupe'
     });
   }
 });

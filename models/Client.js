@@ -5,27 +5,27 @@ const ClientSchema = new mongoose.Schema({
   eventId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Event',
-    required: [true, 'L\'ID de l\'événement est requis'],
+    required: true,
     index: true
   },
 
   firstName: {
     type: String,
-    required: [true, 'Le prénom est requis'],
+    required: true,
     trim: true,
     maxlength: [50, 'Le prénom ne peut pas dépasser 50 caractères']
   },
 
   lastName: {
     type: String,
-    required: [true, 'Le nom est requis'],
+    required: true,
     trim: true,
     maxlength: [50, 'Le nom ne peut pas dépasser 50 caractères']
   },
 
   phone: {
     type: String,
-    required: [true, 'Le téléphone est requis'],
+    required: true,
     trim: true,
     maxlength: [20, 'Le téléphone ne peut pas dépasser 20 caractères']
   },
@@ -40,7 +40,7 @@ const ClientSchema = new mongoose.Schema({
   // 🆕 AJOUT: Sexe pour l'assignation des chambres
   gender: {
     type: String,
-    required: [true, 'Le sexe est requis'],
+    required: true,
     enum: {
       values: ['Homme', 'Femme', 'Autre'],
       message: 'Sexe invalide'
@@ -49,24 +49,18 @@ const ClientSchema = new mongoose.Schema({
 
   clientType: {
     type: String,
+    required: true,
     enum: {
-      values: ['VIP', 'Influenceur', 'Staff', 'Groupe', 'Solo'],
+      values: ['VIP', 'Influenceur', 'Staff', 'Standard'],
       message: 'Type de client invalide'
     },
-    default: 'Solo'
+    default: 'Standard'
   },
 
   groupName: {
     type: String,
     trim: true,
     maxlength: [100, 'Le nom du groupe ne peut pas dépasser 100 caractères']
-  },
-
-  groupSize: {
-    type: Number,
-    default: 1,
-    min: [1, 'La taille du groupe doit être au moins de 1'],
-    max: [50, 'La taille du groupe ne peut pas dépasser 50']
   },
 
   // 🆕 AJOUT: Relation de groupe pour la mixité
