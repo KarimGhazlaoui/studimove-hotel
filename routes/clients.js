@@ -440,6 +440,10 @@ router.post('/import-csv', upload.single('csvFile'), async (req, res) => {
             const row = results[i];
             const lineNum = i + 2;
 
+            // 🔍 DEBUG: Ajoutons ce log pour voir le contenu exact
+            console.log(`🔍 Ligne ${lineNum} - Contenu brut:`, row);
+            console.log(`🔍 Prenom: "${row.prenom}", Nom: "${row.nom}", Tel: "${row.telephone}", Sexe: "${row.sexe}"`);
+
             try {
               // ✅ VALIDATION OBLIGATOIRE
               if (!row.prenom || !row.nom || !row.telephone || !row.sexe || !row.type) {
