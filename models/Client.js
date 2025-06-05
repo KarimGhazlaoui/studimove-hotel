@@ -15,15 +15,15 @@ const clientSchema = new mongoose.Schema({
     required: [true, 'Le prénom est requis'],
     trim: true,
     maxlength: [50, 'Le prénom ne peut dépasser 50 caractères']
-  },
-  
+  }, 
+
   lastName: {
     type: String,
     required: [true, 'Le nom est requis'],
     trim: true,
     maxlength: [50, 'Le nom ne peut dépasser 50 caractères']
-  },
-  
+  }, 
+
   phone: {
     type: String,
     required: [true, 'Le téléphone est requis'],
@@ -34,8 +34,8 @@ const clientSchema = new mongoose.Schema({
       },
       message: 'Format de téléphone invalide'
     }
-  },
-  
+  }, 
+
   email: {
     type: String,
     trim: true,
@@ -77,8 +77,20 @@ const clientSchema = new mongoose.Schema({
     trim: true,
     maxlength: [100, 'Le nom du groupe ne peut dépasser 100 caractères'],
     index: true
+  }, 
+
+  // 🆕 TAILLE DU GROUPE (NOUVEAU CHAMP !)
+  groupSize: {
+    type: Number,
+    default: 1,
+    min: [1, 'La taille du groupe doit être au moins 1'],
+    max: [50, 'La taille du groupe ne peut dépasser 50'],
+    validate: {
+      validator: Number.isInteger,
+      message: 'La taille du groupe doit être un nombre entier'
+    }
   },
-  
+
   groupRelation: {
     type: String,
     enum: ['Famille', 'Couple', 'Amis', 'Collègues', 'Autre'],
@@ -138,10 +150,10 @@ const clientSchema = new mongoose.Schema({
   logicalRoomId: {
     type: String,
     trim: true
-  },
-  
+  }, 
+
   realRoomNumber: {
-    type: String, 
+    type: String,
     trim: true
   },
 
@@ -195,6 +207,7 @@ const clientSchema = new mongoose.Schema({
   confirmationDate: Date,
   arrivalDate: Date,
   departureDate: Date
+
 }, {
   // Options du schéma
   timestamps: true, // Ajoute automatiquement createdAt et updatedAt
@@ -234,6 +247,17 @@ clientSchema.virtual('isInGroup').get(function() {
 
 clientSchema.virtual('isPriority').get(function() {
   return ['VIP', 'Influenceur', 'Staff'].includes(this.clientType);
+});
+
+// 🆕 PROPRIÉTÉ VIRTUELLE POUR LA TAILLE AFFICHÉE
+clientSchema.virtual('displayGroupInfo').get(function() {
+  if (this.groupName) {
+    return `${this.groupName} (${this.groupSize})`;
+  } else if (this.clientType === 'Staff') {
+    return `Staff (${this.groupSize})`;
+  } else {
+    return `Solo (${this.groupSize})`;
+  }
 });
 
 // 🔧 MÉTHODES D'INSTANCE
@@ -286,7 +310,7 @@ clientSchema.statics.getEventStats = async function(eventId) {
       }
     }
   ]);
-
+  
   return stats[0] || {
     total: 0,
     assigned: 0,
@@ -299,16 +323,17 @@ clientSchema.statics.getEventStats = async function(eventId) {
 
 clientSchema.statics.getGroupSizes = async function(eventId) {
   return await this.aggregate([
-    { 
-      $match: { 
+    {
+      $match: {
         eventId: mongoose.Types.ObjectId(eventId),
         groupName: { $ne: null, $ne: '' }
-      } 
+      }
     },
     {
       $group: {
         _id: '$groupName',
         memberCount: { $sum: 1 },
+        totalGroupSize: { $first: '$groupSize' }, // 🆕 TAILLE CALCULÉE
         genders: { $addToSet: '$gender' },
         types: { $addToSet: '$clientType' },
         members: {
@@ -345,17 +370,22 @@ clientSchema.statics.getGroupSizes = async function(eventId) {
 clientSchema.pre('save', function(next) {
   // Mise à jour automatique du timestamp
   this.updatedAt = new Date();
-
+  
   // Nettoyage des données
   if (this.groupName === '' || this.groupName === 'solo') {
     this.groupName = null;
   }
-
+  
+  // 🆕 VALIDATION LOGIQUE GROUPSIZE
+  if (!this.groupName && this.clientType !== 'Staff') {
+    this.groupSize = 1; // Solo = taille 1
+  }
+  
   // Validation logique métier
   if (this.clientType === 'VIP' && !this.notes) {
     this.notes = 'Client VIP - Traitement prioritaire';
   }
-
+  
   next();
 });
 
