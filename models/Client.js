@@ -76,21 +76,54 @@ const ClientSchema = new mongoose.Schema({
     default: 'Amis'
   },
 
-  assignedHotel: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Hotel'
+  // 🏠 Assignation (dans le schéma existant)
+  assignment: {
+    hotelId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Hotel',
+      default: null
+    },
+    logicalRoomId: {
+      type: String,
+      default: null // "room_1", "room_2", etc.
+    },
+    assignmentType: {
+      type: String,
+      enum: ['auto', 'manual'],
+      default: null
+    },
+    assignedAt: {
+      type: Date,
+      default: null
+    },
+    assignedBy: {
+      type: String,
+      default: null
+    }
   },
 
-  // 🆕 AJOUT: Assignation de chambre
-  roomAssignment: {
-    roomId: String, // ID généré pour la chambre assignée
-    roomType: String, // Standard, Suite, etc.
-    roomCapacity: Number,
-    roommates: [{
-      clientId: { type: mongoose.Schema.Types.ObjectId, ref: 'Client' },
-      name: String,
-      gender: String
-    }]
+  // 🏨 Gestion sur place
+  onSite: {
+    realRoomNumber: {
+      type: String,
+      default: null
+    },
+    depositPaid: {
+      type: Boolean,
+      default: false
+    },
+    depositAmount: {
+      type: Number,
+      default: 0
+    },
+    checkedInAt: {
+      type: Date,
+      default: null
+    },
+    checkedInBy: {
+      type: String,
+      default: null
+    }
   },
 
   status: {

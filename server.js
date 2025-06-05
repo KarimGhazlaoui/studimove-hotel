@@ -61,6 +61,7 @@ app.use('/api/events', require('./routes/events'));
 app.use('/api/dashboard', require('./routes/dashboard'));
 app.use('/api/assignments', require('./routes/eventHotelAssignments'));
 app.use('/api/clients', require('./routes/clientAssignments'));
+app.use('/api/assignments', require('./routes/assignments'));
 app.use('/api/health', require('./routes/health'));
 
 
