@@ -17,15 +17,13 @@ router.get('/', async (req, res) => {
     const { eventId, search, clientType, status, gender, groupName } = req.query;
     let filter = {};
 
-    // 🆕 OBLIGATOIRE: Filtrer par événement
-    if (!eventId) {
-      return res.status(400).json({
-        success: false,
-        message: 'L\'ID de l\'événement est requis'
-      });
-    }
-
+    // 🆕 FILTRER PAR ÉVÉNEMENT (optionnel pour compatibilité)
+    if (eventId) {
     filter.eventId = eventId;
+    console.log(`🔍 Filtrage par événement: ${eventId}`);
+    } else {
+    console.log('⚠️  Récupération de TOUS les clients (pas de filtre événement)');
+    }
 
     // Autres filtres
     if (search) {
