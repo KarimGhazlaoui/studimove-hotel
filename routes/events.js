@@ -4,6 +4,19 @@ const Event = require('../models/Event');
 const Hotel = require('../models/Hotel');
 const Client = require('../models/Client');
 
+// ✅ Fonction helper pour créer une date valide
+const createSafeDate = (dateStr) => {
+  if (!dateStr) return null;
+  
+  // Si c'est déjà au format ISO complet, l'utiliser directement
+  if (dateStr.includes('T')) {
+    return new Date(dateStr);
+  }
+  
+  // Sinon, c'est au format YYYY-MM-DD, ajouter l'heure
+  return new Date(dateStr + 'T12:00:00.000Z');
+};
+
 // GET /api/events - Récupérer tous les événements
 router.get('/', async (req, res) => {
   try {
@@ -95,19 +108,34 @@ router.post('/', async (req, res) => {
       vipPrice
     } = req.body;
 
-    // Validation des dates
+    console.log('🔍 POST - Données reçues:', req.body);
+
+    // Validation des champs requis
+    if (!name || !country || !city || !startDate || !endDate) {
+      return res.status(400).json({
+        success: false,
+        message: 'Nom, pays, ville et dates sont requis'
+      });
+    }
+
+    // ✅ Validation des dates avec la fonction helper
     if (startDate && endDate) {
       console.log('🔍 POST - Dates reçues:');
       console.log('- startDate brut:', startDate);
       console.log('- endDate brut:', endDate);
       
-      // Créer les dates à midi UTC pour éviter les problèmes de timezone
-      const start = new Date(startDate + 'T12:00:00.000Z');
-      const end = new Date(endDate + 'T12:00:00.000Z');
+      const start = createSafeDate(startDate);
+      const end = createSafeDate(endDate);
       
-      console.log('- Date début:', start.toISOString());
-      console.log('- Date fin:', end.toISOString());
-      console.log('- Fin > Début ?', end > start);
+      console.log('- Date début:', start ? start.toISOString() : 'INVALIDE');
+      console.log('- Date fin:', end ? end.toISOString() : 'INVALIDE');
+      
+      if (!start || !end || isNaN(start.getTime()) || isNaN(end.getTime())) {
+        return res.status(400).json({
+          success: false,
+          message: 'Format de date invalide'
+        });
+      }
       
       if (start >= end) {
         return res.status(400).json({
@@ -126,12 +154,13 @@ router.post('/', async (req, res) => {
       });
     }
 
+    // ✅ Créer l'événement avec gestion intelligente des dates
     const event = new Event({
       name: name.trim(),
       country: country.trim(),
       city: city.trim(),
-      startDate: new Date(startDate + 'T00:00:00.000Z'),
-      endDate: new Date(endDate + 'T23:59:59.000Z'),
+      startDate: startDate.includes('T') ? new Date(startDate) : new Date(startDate + 'T00:00:00.000Z'),
+      endDate: endDate.includes('T') ? new Date(endDate) : new Date(endDate + 'T23:59:59.000Z'),
       description: description ? description.trim() : '',
       maxParticipants: maxParticipants || null,
       allowMixedGroups: allowMixedGroups || false,
@@ -139,6 +168,8 @@ router.post('/', async (req, res) => {
     });
 
     await event.save();
+
+    console.log('✅ Événement créé:', event);
 
     res.status(201).json({
       success: true,
@@ -159,7 +190,6 @@ router.post('/', async (req, res) => {
 router.get('/:id', async (req, res) => {
   try {
     const event = await Event.findById(req.params.id);
-
     if (!event) {
       return res.status(404).json({
         success: false,
@@ -223,19 +253,26 @@ router.put('/:id', async (req, res) => {
       vipPrice
     } = req.body;
 
-    // Validation des dates
+    console.log('🔍 PUT - Données reçues:', req.body);
+
+    // ✅ Validation des dates avec la fonction helper
     if (startDate && endDate) {
       console.log('🔍 PUT - Dates reçues:');
       console.log('- startDate brut:', startDate);
       console.log('- endDate brut:', endDate);
       
-      // Créer les dates à midi UTC pour éviter les problèmes de timezone
-      const start = new Date(startDate + 'T12:00:00.000Z');
-      const end = new Date(endDate + 'T12:00:00.000Z');
+      const start = createSafeDate(startDate);
+      const end = createSafeDate(endDate);
       
-      console.log('- Date début:', start.toISOString());
-      console.log('- Date fin:', end.toISOString());  
-      console.log('- Fin > Début ?', end > start);
+      console.log('- Date début:', start ? start.toISOString() : 'INVALIDE');
+      console.log('- Date fin:', end ? end.toISOString() : 'INVALIDE');
+      
+      if (!start || !end || isNaN(start.getTime()) || isNaN(end.getTime())) {
+        return res.status(400).json({
+          success: false,
+          message: 'Format de date invalide'
+        });
+      }
       
       if (start >= end) {
         return res.status(400).json({
@@ -247,11 +284,11 @@ router.put('/:id', async (req, res) => {
 
     // Vérifier si le nom existe déjà (sauf pour cet événement)
     if (name) {
-      const existingEvent = await Event.findOne({ 
-        name: name.trim(), 
-        _id: { $ne: req.params.id } 
+      const existingEvent = await Event.findOne({
+        name: name.trim(),
+        _id: { $ne: req.params.id }
       });
-      
+           
       if (existingEvent) {
         return res.status(400).json({
           success: false,
@@ -264,13 +301,18 @@ router.put('/:id', async (req, res) => {
     if (name) updateData.name = name.trim();
     if (country) updateData.country = country.trim();
     if (city) updateData.city = city.trim();
-    if (startDate) updateData.startDate = new Date(startDate + 'T00:00:00.000Z');
-    if (endDate) updateData.endDate = new Date(endDate + 'T23:59:59.000Z');
+    
+    // ✅ Gestion intelligente des dates
+    if (startDate) updateData.startDate = startDate.includes('T') ? new Date(startDate) : new Date(startDate + 'T00:00:00.000Z');
+    if (endDate) updateData.endDate = endDate.includes('T') ? new Date(endDate) : new Date(endDate + 'T23:59:59.000Z');
+    
     if (description !== undefined) updateData.description = description.trim();
     if (status) updateData.status = status;
     if (maxParticipants !== undefined) updateData.maxParticipants = maxParticipants || null;
     if (allowMixedGroups !== undefined) updateData.allowMixedGroups = allowMixedGroups;
     if (vipPrice !== undefined) updateData.vipPrice = vipPrice || 0;
+
+    console.log('🔍 Données de mise à jour:', updateData);
 
     const event = await Event.findByIdAndUpdate(
       req.params.id,
@@ -284,6 +326,8 @@ router.put('/:id', async (req, res) => {
         message: 'Événement non trouvé'
       });
     }
+
+    console.log('✅ Événement mis à jour:', event);
 
     res.json({
       success: true,
@@ -304,7 +348,7 @@ router.put('/:id', async (req, res) => {
 router.put('/:id/status', async (req, res) => {
   try {
     const { status } = req.body;
-    
+       
     const validStatuses = ['Planification', 'Active', 'Terminé', 'Annulé'];
     if (!validStatuses.includes(status)) {
       return res.status(400).json({
@@ -344,7 +388,6 @@ router.put('/:id/status', async (req, res) => {
 router.delete('/:id', async (req, res) => {
   try {
     const event = await Event.findById(req.params.id);
-
     if (!event) {
       return res.status(404).json({
         success: false,
@@ -384,13 +427,14 @@ router.delete('/:id', async (req, res) => {
 router.delete('/:id/force', async (req, res) => {
   try {
     const event = await Event.findById(req.params.id);
-
     if (!event) {
       return res.status(404).json({
         success: false,
         message: 'Événement non trouvé'
       });
     }
+
+    console.log(`🗑️ Suppression forcée de l'événement: ${event.name}`);
 
     // Supprimer toutes les données associées
     const [deletedClients, deletedHotels] = await Promise.all([
@@ -400,6 +444,8 @@ router.delete('/:id/force', async (req, res) => {
 
     // Supprimer l'événement
     await Event.findByIdAndDelete(req.params.id);
+
+    console.log(`✅ Suppression forcée terminée: ${deletedClients.deletedCount} clients, ${deletedHotels.deletedCount} hôtels`);
 
     res.json({
       success: true,
@@ -422,7 +468,7 @@ router.delete('/:id/force', async (req, res) => {
 router.get('/:id/stats', async (req, res) => {
   try {
     const event = await Event.findById(req.params.id);
-    
+       
     if (!event) {
       return res.status(404).json({
         success: false,
@@ -444,7 +490,7 @@ router.get('/:id/stats', async (req, res) => {
           }
         }
       ]),
-      
+           
       // Statistiques clients
       Client.aggregate([
         { $match: { eventId: event._id } },
@@ -462,7 +508,7 @@ router.get('/:id/stats', async (req, res) => {
           }
         }
       ]),
-      
+           
       // Statistiques chambres
       Hotel.aggregate([
         { $match: { eventId: event._id } },
@@ -492,6 +538,158 @@ router.get('/:id/stats', async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Erreur lors de la récupération des statistiques'
+    });
+  }
+});
+
+// GET /api/events/:id/assignments - Récupérer les assignations d'un événement
+router.get('/:id/assignments', async (req, res) => {
+  try {
+    const event = await Event.findById(req.params.id);
+    if (!event) {
+      return res.status(404).json({
+        success: false,
+        message: 'Événement non trouvé'
+      });
+    }
+
+    // Récupérer tous les clients avec leurs hôtels assignés
+    const clients = await Client.find({ eventId: req.params.id })
+      .populate('assignedHotel', 'name address rating')
+      .sort({ lastName: 1, firstName: 1 });
+
+    // Récupérer tous les hôtels de l'événement
+    const hotels = await Hotel.find({ eventId: req.params.id })
+      .sort({ name: 1 });
+
+    // Statistiques d'assignation
+    const assignedCount = clients.filter(c => c.assignedHotel).length;
+    const unassignedCount = clients.length - assignedCount;
+
+    res.json({
+      success: true,
+      data: {
+        event: {
+          _id: event._id,
+          name: event.name,
+          city: event.city,
+          country: event.country
+        },
+        clients: clients,
+        hotels: hotels,
+        stats: {
+          totalClients: clients.length,
+          assigned: assignedCount,
+          unassigned: unassignedCount,
+          assignmentRate: clients.length > 0 ? Math.round((assignedCount / clients.length) * 100) : 0
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Erreur GET event assignments:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Erreur lors de la récupération des assignations'
+    });
+  }
+});
+
+// POST /api/events/:id/assign - Assigner des clients à des hôtels
+router.post('/:id/assign', async (req, res) => {
+  try {
+    const { assignments } = req.body; // Array of { clientId, hotelId }
+    
+    if (!assignments || !Array.isArray(assignments)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Le tableau des assignations est requis'
+      });
+    }
+
+    const event = await Event.findById(req.params.id);
+    if (!event) {
+      return res.status(404).json({
+        success: false,
+        message: 'Événement non trouvé'
+      });
+    }
+
+    let successCount = 0;
+    let errorCount = 0;
+    const errors = [];
+
+    console.log(`🏨 Traitement de ${assignments.length} assignations pour l'événement: ${event.name}`);
+
+    for (let assignment of assignments) {
+      try {
+        const { clientId, hotelId } = assignment;
+
+        // Vérifier que le client existe et appartient à cet événement
+        const client = await Client.findOne({ 
+          _id: clientId, 
+          eventId: req.params.id 
+        });
+
+        if (!client) {
+          errors.push(`Client ${clientId} non trouvé dans cet événement`);
+          errorCount++;
+          continue;
+        }
+
+        // Vérifier que l'hôtel existe et appartient à cet événement
+        const hotel = await Hotel.findOne({ 
+          _id: hotelId, 
+          eventId: req.params.id 
+        });
+
+        if (!hotel) {
+          errors.push(`Hôtel ${hotelId} non trouvé dans cet événement`);
+          errorCount++;
+          continue;
+        }
+
+        // Assigner le client à l'hôtel
+        await Client.findByIdAndUpdate(clientId, { 
+          assignedHotel: hotelId,
+          status: 'Assigné'
+        });
+
+        successCount++;
+
+      } catch (error) {
+        console.error(`Erreur assignation ${assignment.clientId}:`, error);
+        errors.push(`Erreur pour client ${assignment.clientId}: ${error.message}`);
+        errorCount++;
+      }
+    }
+
+    // Mettre à jour les statistiques des hôtels
+    const uniqueHotels = [...new Set(assignments.map(a => a.hotelId))];
+    for (let hotelId of uniqueHotels) {
+      const hotel = await Hotel.findById(hotelId);
+      if (hotel && hotel.updateAssignedClients) {
+        await hotel.updateAssignedClients();
+      }
+    }
+
+    console.log(`✅ Assignations terminées: ${successCount} succès, ${errorCount} erreurs`);
+
+    res.json({
+      success: true,
+      message: `Assignations terminées: ${successCount} succès, ${errorCount} erreurs`,
+      data: {
+        successCount,
+        errorCount,
+        errors: errors.slice(0, 10) // Limiter les erreurs affichées
+      }
+    });
+
+  } catch (error) {
+    console.error('Erreur POST event assign:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Erreur lors des assignations',
+      error: error.message
     });
   }
 });
