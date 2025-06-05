@@ -96,14 +96,25 @@ router.post('/', async (req, res) => {
     } = req.body;
 
     // Validation des dates
-    const start = new Date(startDate);
-    const end = new Date(endDate);
-    
-    if (start >= end) {
-      return res.status(400).json({
-        success: false,
-        message: 'La date de fin doit être après la date de début'
-      });
+    if (startDate && endDate) {
+      console.log('🔍 POST - Dates reçues:');
+      console.log('- startDate brut:', startDate);
+      console.log('- endDate brut:', endDate);
+      
+      // Créer les dates à midi UTC pour éviter les problèmes de timezone
+      const start = new Date(startDate + 'T12:00:00.000Z');
+      const end = new Date(endDate + 'T12:00:00.000Z');
+      
+      console.log('- Date début:', start.toISOString());
+      console.log('- Date fin:', end.toISOString());
+      console.log('- Fin > Début ?', end > start);
+      
+      if (start >= end) {
+        return res.status(400).json({
+          success: false,
+          message: 'La date de fin doit être après la date de début'
+        });
+      }
     }
 
     // Vérifier si l'événement existe déjà
@@ -119,8 +130,8 @@ router.post('/', async (req, res) => {
       name: name.trim(),
       country: country.trim(),
       city: city.trim(),
-      startDate: start,
-      endDate: end,
+      startDate: new Date(startDate + 'T00:00:00.000Z'),
+      endDate: new Date(endDate + 'T23:59:59.000Z'),
       description: description ? description.trim() : '',
       maxParticipants: maxParticipants || null,
       allowMixedGroups: allowMixedGroups || false,
@@ -214,8 +225,17 @@ router.put('/:id', async (req, res) => {
 
     // Validation des dates
     if (startDate && endDate) {
-      const start = new Date(startDate);
-      const end = new Date(endDate);
+      console.log('🔍 PUT - Dates reçues:');
+      console.log('- startDate brut:', startDate);
+      console.log('- endDate brut:', endDate);
+      
+      // Créer les dates à midi UTC pour éviter les problèmes de timezone
+      const start = new Date(startDate + 'T12:00:00.000Z');
+      const end = new Date(endDate + 'T12:00:00.000Z');
+      
+      console.log('- Date début:', start.toISOString());
+      console.log('- Date fin:', end.toISOString());  
+      console.log('- Fin > Début ?', end > start);
       
       if (start >= end) {
         return res.status(400).json({
@@ -244,8 +264,8 @@ router.put('/:id', async (req, res) => {
     if (name) updateData.name = name.trim();
     if (country) updateData.country = country.trim();
     if (city) updateData.city = city.trim();
-    if (startDate) updateData.startDate = new Date(startDate);
-    if (endDate) updateData.endDate = new Date(endDate);
+    if (startDate) updateData.startDate = new Date(startDate + 'T00:00:00.000Z');
+    if (endDate) updateData.endDate = new Date(endDate + 'T23:59:59.000Z');
     if (description !== undefined) updateData.description = description.trim();
     if (status) updateData.status = status;
     if (maxParticipants !== undefined) updateData.maxParticipants = maxParticipants || null;
