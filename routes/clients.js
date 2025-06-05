@@ -451,11 +451,14 @@ router.post('/import-csv', upload.single('csvFile'), async (req, res) => {
                 continue;
               }
 
-              // ✅ VALIDATION DU SEXE
+              // Validation du sexe
               const validGenders = ['Homme', 'Femme', 'Autre'];
               const gender = row.sexe.trim();
+              console.log(`🔍 Validation sexe: "${gender}" - Valide: ${validGenders.includes(gender)}`);
+
               if (!validGenders.includes(gender)) {
-                errors.push(`Ligne ${lineNum}: Sexe "${gender}" invalide. Valeurs: ${validGenders.join(', ')}`);
+                console.log(`❌ Sexe invalide détecté: "${gender}"`);
+                errors.push(`Ligne ${lineNum}: Sexe invalide "${gender}". Valeurs acceptées: ${validGenders.join(', ')}`);
                 continue;
               }
 
@@ -467,24 +470,21 @@ router.post('/import-csv', upload.single('csvFile'), async (req, res) => {
                 continue;
               }
 
-              // ✅ VÉRIFIER UNICITÉ PAR ÉVÉNEMENT
-              const phone = row.telephone.trim();
+              // Vérifier si le client existe déjà dans cet événement
+              console.log(`🔍 Vérification client existant - Event: ${eventId}, Tel: ${row.telephone.trim()}`);
               const existingClient = await Client.findOne({ 
                 eventId: eventId,
-                phone: phone 
+                phone: row.telephone.trim() 
               });
               
               if (existingClient) {
-                errors.push(`Ligne ${lineNum}: Téléphone ${phone} existe déjà`);
+                console.log(`❌ Client existant trouvé:`, existingClient._id);
+                errors.push(`Ligne ${lineNum}: Client avec téléphone ${row.telephone} existe déjà dans cet événement`);
+                skipped++;
                 continue;
               }
 
-              // Vérifier aussi dans les clients à créer (doublons dans le CSV)
-              const duplicateInBatch = clientsToCreate.find(c => c.phone === phone);
-              if (duplicateInBatch) {
-                errors.push(`Ligne ${lineNum}: Téléphone ${phone} en doublon dans le CSV`);
-                continue;
-              }
+              console.log(`✅ Ligne ${lineNum} - Validations passées, création du client...`);
 
               // ✅ DÉTERMINER GROUPE
               let groupName = null;
