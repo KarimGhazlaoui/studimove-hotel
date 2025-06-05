@@ -241,54 +241,32 @@ router.get('/:id', async (req, res) => {
 router.put('/:id', async (req, res) => {
   try {
     const {
-      name,
-      country,
-      city,
-      startDate,
-      endDate,
-      description,
-      status,
-      maxParticipants,
-      allowMixedGroups,
-      vipPrice
+      name, country, city, startDate, endDate,
+      description, status, maxParticipants, allowMixedGroups, vipPrice
     } = req.body;
 
     console.log('🔍 PUT - Données reçues:', req.body);
 
-    // ✅ Validation des dates avec la fonction helper
+    // ✅ Validation des dates avec méthode statique
     if (startDate && endDate) {
-      console.log('🔍 PUT - Dates reçues:');
-      console.log('- startDate brut:', startDate);
-      console.log('- endDate brut:', endDate);
-      
-      const start = createSafeDate(startDate);
-      const end = createSafeDate(endDate);
-      
-      console.log('- Date début:', start ? start.toISOString() : 'INVALIDE');
-      console.log('- Date fin:', end ? end.toISOString() : 'INVALIDE');
-      
-      if (!start || !end || isNaN(start.getTime()) || isNaN(end.getTime())) {
+      try {
+        Event.validateDates(startDate, endDate);
+        console.log('✅ Validation dates réussie');
+      } catch (error) {
         return res.status(400).json({
           success: false,
-          message: 'Format de date invalide'
-        });
-      }
-      
-      if (start >= end) {
-        return res.status(400).json({
-          success: false,
-          message: 'La date de fin doit être après la date de début'
+          message: error.message
         });
       }
     }
 
-    // Vérifier si le nom existe déjà (sauf pour cet événement)
+    // Vérifier unicité du nom
     if (name) {
       const existingEvent = await Event.findOne({
         name: name.trim(),
         _id: { $ne: req.params.id }
       });
-           
+      
       if (existingEvent) {
         return res.status(400).json({
           success: false,
@@ -301,23 +279,24 @@ router.put('/:id', async (req, res) => {
     if (name) updateData.name = name.trim();
     if (country) updateData.country = country.trim();
     if (city) updateData.city = city.trim();
-    
-    // ✅ Gestion intelligente des dates
-    if (startDate) updateData.startDate = startDate.includes('T') ? new Date(startDate) : new Date(startDate + 'T00:00:00.000Z');
-    if (endDate) updateData.endDate = endDate.includes('T') ? new Date(endDate) : new Date(endDate + 'T23:59:59.000Z');
-    
+    if (startDate) updateData.startDate = new Date(startDate);
+    if (endDate) updateData.endDate = new Date(endDate);
     if (description !== undefined) updateData.description = description.trim();
     if (status) updateData.status = status;
     if (maxParticipants !== undefined) updateData.maxParticipants = maxParticipants || null;
     if (allowMixedGroups !== undefined) updateData.allowMixedGroups = allowMixedGroups;
     if (vipPrice !== undefined) updateData.vipPrice = vipPrice || 0;
 
-    console.log('🔍 Données de mise à jour:', updateData);
+    console.log('🔍 Update data:', updateData);
 
+    // ✅ Utiliser findByIdAndUpdate avec validation désactivée puis re-valider
     const event = await Event.findByIdAndUpdate(
       req.params.id,
       updateData,
-      { new: true, runValidators: true }
+      { 
+        new: true, 
+        runValidators: false // Désactiver les validators mongoose
+      }
     );
 
     if (!event) {

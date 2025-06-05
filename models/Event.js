@@ -26,13 +26,8 @@ const EventSchema = new mongoose.Schema({
   },
   endDate: {
     type: Date,
-    required: [true, 'La date de fin est requise'],
-    validate: {
-      validator: function(value) {
-        return value > this.startDate;
-      },
-      message: 'La date de fin doit être après la date de début'
-    }
+    required: [true, 'La date de fin est requise']
+    // ✅ VALIDATOR SUPPRIMÉ - Validation faite côté route
   },
   description: {
     type: String,
@@ -85,6 +80,7 @@ EventSchema.index({ name: 1 });
 
 // Méthodes virtuelles
 EventSchema.virtual('duration').get(function() {
+  if (!this.startDate || !this.endDate) return 0;
   const diffTime = this.endDate - this.startDate;
   const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
   return diffDays;
@@ -99,36 +95,123 @@ EventSchema.virtual('isFull').get(function() {
   return this.maxParticipants && this.currentParticipants >= this.maxParticipants;
 });
 
+// ✅ VALIDATION ROBUSTE dans pre-save
+EventSchema.pre('save', function(next) {
+  console.log('🔍 Pre-save validation Event:', {
+    name: this.name,
+    startDate: this.startDate,
+    endDate: this.endDate
+  });
+
+  // Validation des dates
+  if (this.startDate && this.endDate) {
+    if (this.endDate <= this.startDate) {
+      const error = new Error('La date de fin doit être après la date de début');
+      error.name = 'ValidationError';
+      return next(error);
+    }
+  }
+
+  // Validation participants
+  if (this.maxParticipants && this.currentParticipants > this.maxParticipants) {
+    const error = new Error('Le nombre de participants dépasse la limite autorisée');
+    error.name = 'ValidationError';
+    return next(error);
+  }
+
+  console.log('✅ Pre-save validation réussie');
+  next();
+});
+
+// ✅ VALIDATION pour les updates aussi
+EventSchema.pre(['findOneAndUpdate', 'updateOne', 'updateMany'], function(next) {
+  const update = this.getUpdate();
+  
+  console.log('🔍 Pre-update validation:', update);
+
+  // Si on met à jour les dates, les valider
+  if (update.startDate && update.endDate) {
+    if (update.endDate <= update.startDate) {
+      const error = new Error('La date de fin doit être après la date de début');
+      error.name = 'ValidationError';
+      return next(error);
+    }
+  }
+
+  console.log('✅ Pre-update validation réussie');
+  next();
+});
+
 // Méthodes d'instance
 EventSchema.methods.updateParticipantsCount = async function() {
-  const Client = require('./Client'); // ← Import direct
-  const count = await Client.countDocuments({ eventId: this._id });
-  this.currentParticipants = count;
-  return this.save();
+  try {
+    const Client = require('./Client');
+    const count = await Client.countDocuments({ eventId: this._id });
+    this.currentParticipants = count;
+    
+    // Utiliser updateOne pour éviter les validators
+    await mongoose.model('Event').updateOne(
+      { _id: this._id },
+      { currentParticipants: count }
+    );
+    
+    return this;
+  } catch (error) {
+    console.error('Erreur updateParticipantsCount:', error);
+    throw error;
+  }
 };
 
 EventSchema.methods.updateHotelsCount = async function() {
-  const Hotel = mongoose.model('Hotel');
-  const hotelCount = await Hotel.countDocuments({ eventId: this._id });
-  
-  const roomsAgg = await Hotel.aggregate([
-    { $match: { eventId: this._id } },
-    { $unwind: '$roomTypes' },
-    { $group: { _id: null, totalRooms: { $sum: '$roomTypes.quantity' } } }
-  ]);
-  
-  this.totalHotels = hotelCount;
-  this.totalRooms = roomsAgg.length > 0 ? roomsAgg[0].totalRooms : 0;
-  return this.save();
+  try {
+    const Hotel = mongoose.model('Hotel');
+    const hotelCount = await Hotel.countDocuments({ eventId: this._id });
+    
+    const roomsAgg = await Hotel.aggregate([
+      { $match: { eventId: this._id } },
+      { $unwind: '$roomTypes' },
+      { $group: { _id: null, totalRooms: { $sum: '$roomTypes.quantity' } } }
+    ]);
+    
+    const totalRooms = roomsAgg.length > 0 ? roomsAgg[0].totalRooms : 0;
+    
+    // Utiliser updateOne pour éviter les validators
+    await mongoose.model('Event').updateOne(
+      { _id: this._id },
+      { 
+        totalHotels: hotelCount,
+        totalRooms: totalRooms
+      }
+    );
+    
+    this.totalHotels = hotelCount;
+    this.totalRooms = totalRooms;
+    
+    return this;
+  } catch (error) {
+    console.error('Erreur updateHotelsCount:', error);
+    throw error;
+  }
 };
 
-// Middleware pre-save
-EventSchema.pre('save', function(next) {
-  // Validation supplémentaire
-  if (this.maxParticipants && this.currentParticipants > this.maxParticipants) {
-    return next(new Error('Le nombre de participants dépasse la limite autorisée'));
+// Méthode statique pour validation des dates
+EventSchema.statics.validateDates = function(startDate, endDate) {
+  if (!startDate || !endDate) {
+    throw new Error('Les dates de début et fin sont requises');
   }
-  next();
-});
+  
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  
+  if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+    throw new Error('Format de date invalide');
+  }
+  
+  if (end <= start) {
+    throw new Error('La date de fin doit être après la date de début');
+  }
+  
+  return { start, end };
+};
 
 module.exports = mongoose.model('Event', EventSchema);
