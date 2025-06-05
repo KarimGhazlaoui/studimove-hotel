@@ -467,7 +467,7 @@ router.post('/import-csv', upload.single('csvFile'), async (req, res) => {
               const validTypes = ['solo', 'vip', 'influenceur', 'staff'];
               const rawType = row.type_client.trim().toLowerCase();
               const typeMapping = {
-                'solo': 'Solo',
+                'solo': 'Standard',
                 'vip': 'VIP', 
                 'influenceur': 'Influenceur',
                 'staff': 'Staff'
