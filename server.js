@@ -74,14 +74,14 @@ try {
   console.log('⚠️ Certaines routes peuvent ne pas être disponibles');
 }
 
-// Si en production, servir les fichiers statiques du frontend
-if (process.env.NODE_ENV === 'production') {
-  app.use(express.static('client/build'));
-  
-  app.get('*', (req, res) => {
-    res.sendFile(path.resolve(__dirname, 'client', 'build', 'index.html'));
-  });
-}
+// 🚫 DÉSACTIVÉ : Servir les fichiers statiques (frontend séparé)
+// if (process.env.NODE_ENV === 'production') {
+//   app.use(express.static('client/build'));
+//   
+//   app.get('*', (req, res) => {
+//     res.sendFile(path.resolve(__dirname, 'client', 'build', 'index.html'));
+//   });
+// }
 
 // Page d'accueil de l'API
 app.get('/', (req, res) => {
@@ -90,6 +90,7 @@ app.get('/', (req, res) => {
     version: '2.0.0',
     status: 'Active',
     timestamp: new Date().toISOString(),
+    deployment: 'Backend API Only (Frontend séparé)',
     endpoints: {
       auth: '/api/auth (POST /login, /register)',
       users: '/api/users (GET, PUT, DELETE)',
@@ -101,7 +102,10 @@ app.get('/', (req, res) => {
       health: '/api/health (GET)'
     },
     documentation: 'API REST pour la gestion d\'hôtels et événements',
-    frontend: 'Interface utilisateur déployée séparément',
+    frontend: {
+      url: 'https://studimove-frontend.vercel.app',
+      status: 'Déployé séparément sur Vercel'
+    },
     features: [
       'Gestion des événements multi-pays',
       'Système d\'assignation intelligent',
@@ -123,6 +127,7 @@ app.get('/api/health', (req, res) => {
     uptime: process.uptime(),
     memory: process.memoryUsage(),
     version: '2.0.0',
+    deployment: 'Render (Backend Only)',
     routes: {
       auth: '✅ Active',
       users: '✅ Active', 
@@ -149,37 +154,17 @@ app.get('/api/test', (req, res) => {
   });
 });
 
-// Route de debug pour les variables d'environnement (développement uniquement)
-if (process.env.NODE_ENV === 'development') {
-  app.get('/api/debug/env', (req, res) => {
-    res.json({
-      NODE_ENV: process.env.NODE_ENV,
-      PORT: process.env.PORT,
-      MONGODB_URI: process.env.MONGODB_URI ? '✅ Défini' : '❌ Manquant',
-      JWT_SECRET: process.env.JWT_SECRET ? '✅ Défini' : '❌ Manquant',
-      timestamp: new Date().toISOString()
-    });
-  });
-}
-
-// Middleware de logging pour le développement
-if (process.env.NODE_ENV === 'development') {
-  app.use((req, res, next) => {
-    console.log(`${req.method} ${req.path} - ${new Date().toISOString()}`);
-    next();
-  });
-}
-
 // Gestion des erreurs 404
 app.use('*', (req, res) => {
   console.log(`❌ Route non trouvée: ${req.method} ${req.originalUrl}`);
   
   res.status(404).json({
     success: false,
-    message: 'Route non trouvée',
+    message: 'Route API non trouvée',
     requestedRoute: req.originalUrl,
     method: req.method,
     timestamp: new Date().toISOString(),
+    note: 'Ceci est un backend API uniquement. Le frontend est déployé séparément.',
     availableRoutes: [
       'GET /',
       'GET /api/health',
@@ -231,15 +216,10 @@ const server = app.listen(PORT, () => {
   console.log('🎉 ================================');
   console.log(`📡 Port: ${PORT}`);
   console.log(`🌐 Mode: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`🔗 Local: http://localhost:${PORT}`);
-  console.log(`🏥 Health: http://localhost:${PORT}/api/health`);
-  console.log(`📚 Docs: http://localhost:${PORT}/`);
-  
-  if (process.env.NODE_ENV === 'development') {
-    console.log(`🐛 Debug: http://localhost:${PORT}/api/debug/env`);
-    console.log(`🧪 Test: http://localhost:${PORT}/api/test`);
-  }
-  
+  console.log(`🔗 URL: Backend API uniquement`);
+  console.log(`🏥 Health: /api/health`);
+  console.log(`📚 Docs: /`);
+  console.log(`🖥️ Frontend: Déployé séparément`);
   console.log('🎉 ================================\n');
 });
 
@@ -249,13 +229,6 @@ const gracefulShutdown = (signal) => {
   
   server.close(() => {
     console.log('✅ Serveur HTTP fermé');
-    
-    // Fermer la connexion MongoDB si nécessaire
-    // mongoose.connection.close(() => {
-    //   console.log('✅ Connexion MongoDB fermée');
-    //   process.exit(0);
-    // });
-    
     process.exit(0);
   });
   
