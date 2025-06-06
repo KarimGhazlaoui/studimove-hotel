@@ -111,7 +111,8 @@ const AssignmentSchema = new mongoose.Schema({
     default: ''
   }
 }, {
-  timestamps: true
+  timestamps: true,
+  collection: 'eventhotelassignments'
 });
 
 // 🔧 Méthodes
