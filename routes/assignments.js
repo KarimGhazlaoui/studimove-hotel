@@ -30,6 +30,15 @@ router.get('/available-hotels/:eventId', async (req, res) => {
 
     console.log(`📋 ${hotelAssignments.length} assignations trouvées`);
 
+    // 🆕 AJOUTER CES LOGS :
+    hotelAssignments.forEach(assignment => {
+      console.log(`🏨 Assignment ID: ${assignment._id}`);
+      console.log(`🏨 Hotel ID: ${assignment.hotelId}`);
+      console.log(`🏨 Total Capacity: ${assignment.totalCapacity}`);
+      console.log(`🏨 Available Rooms:`, assignment.availableRooms);
+      console.log('🏨 Assignment complet:', JSON.stringify(assignment, null, 2));
+    });
+
     // Récupérer les détails des hôtels
     const assignedHotelIds = hotelAssignments.map(a => a.hotelId);
     const hotels = await Hotel.find({ 
