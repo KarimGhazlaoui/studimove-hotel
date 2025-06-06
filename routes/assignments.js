@@ -51,10 +51,14 @@ router.get('/available-hotels/:eventId', async (req, res) => {
         a.hotelId.toString() === hotel._id.toString()
       );
       
+      // 🆕 UTILISER les valeurs directes de l'assignment (pas les stats)
       const totalCapacity = assignment?.totalCapacity || hotel.totalCapacity || 0;
-      const occupancy = assignment?.totalAssigned || 0;
+      const occupancy = assignment?.totalAssigned || assignment?.stats?.totalAssigned || 0;
       const availableRooms = Math.max(0, totalCapacity - occupancy);
       const occupancyRate = totalCapacity > 0 ? Math.round((occupancy / totalCapacity) * 100) : 0;
+
+      // 🆕 DEBUG : Ajouter un log pour vérifier
+      console.log(`🏨 ${hotel.name}: totalCapacity=${totalCapacity}, occupancy=${occupancy}, available=${availableRooms}`);
       
       return {
         _id: hotel._id,
