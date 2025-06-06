@@ -22,25 +22,28 @@ router.get('/available-hotels/:eventId', async (req, res) => {
       });
     }
 
-    // Récupérer tous les hôtels pour cet événement
-    const hotels = await Hotel.find({ eventId: eventId }).sort({ name: 1 });
-    
-    // Récupérer les assignations existantes pour calculer l'occupation
-    const assignments = await Assignment.find({ eventId: eventId })
-      .populate('hotelId', '_id');
-
-    // Créer une map des occupations par hôtel
-    const hotelOccupations = {};
-    assignments.forEach(assignment => {
-      if (assignment.hotelId) {
-        hotelOccupations[assignment.hotelId._id.toString()] = assignment.stats.totalAssigned || 0;
-      }
+    // 🆕 CORRECTION : Chercher dans eventhotelassignments
+    const hotelAssignments = await Assignment.find({ 
+      eventId: eventId,
+      status: 'Active' 
     });
 
-    // Calculer les statistiques pour chaque hôtel
+    console.log(`📋 ${hotelAssignments.length} assignations trouvées`);
+
+    // Récupérer les détails des hôtels
+    const assignedHotelIds = hotelAssignments.map(a => a.hotelId);
+    const hotels = await Hotel.find({ 
+      _id: { $in: assignedHotelIds } 
+    }).sort({ name: 1 });
+
+    // Calculer les statistiques avec les assignations existantes
     const hotelsWithStats = hotels.map(hotel => {
-      const occupancy = hotelOccupations[hotel._id.toString()] || 0;
-      const totalCapacity = hotel.totalCapacity || 0;
+      const assignment = hotelAssignments.find(a => 
+        a.hotelId.toString() === hotel._id.toString()
+      );
+      
+      const totalCapacity = assignment?.totalCapacity || hotel.totalCapacity || 0;
+      const occupancy = assignment?.totalAssigned || 0;
       const availableRooms = Math.max(0, totalCapacity - occupancy);
       const occupancyRate = totalCapacity > 0 ? Math.round((occupancy / totalCapacity) * 100) : 0;
       
@@ -56,12 +59,12 @@ router.get('/available-hotels/:eventId', async (req, res) => {
         availableRooms: availableRooms,
         occupancyRate: occupancyRate,
         isAvailable: availableRooms > 0,
-        eventId: hotel.eventId,
-        contact: hotel.contact
+        contact: hotel.contact,
+        assignmentId: assignment?._id // 🆕 ID de l'assignation
       };
     });
 
-    console.log(`✅ ${hotelsWithStats.length} hôtels trouvés pour l'événement ${event.name}`);
+    console.log(`✅ ${hotelsWithStats.length} hôtels retournés pour l'événement ${event.name}`);
 
     res.json({
       success: true,
@@ -74,6 +77,7 @@ router.get('/available-hotels/:eventId', async (req, res) => {
         country: event.country
       }
     });
+
   } catch (error) {
     console.error('❌ Erreur GET available-hotels:', error);
     res.status(500).json({
@@ -83,6 +87,7 @@ router.get('/available-hotels/:eventId', async (req, res) => {
     });
   }
 });
+
 
 // GET /api/assignments/event/:eventId - Récupérer les assignations d'un événement
 router.get('/event/:eventId', async (req, res) => {
