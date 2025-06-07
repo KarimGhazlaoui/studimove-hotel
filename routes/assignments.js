@@ -22,22 +22,13 @@ router.get('/available-hotels/:eventId', async (req, res) => {
       });
     }
 
-    // 🆕 CORRECTION : Chercher dans eventhotelassignments
+    // Chercher dans eventhotelassignments
     const hotelAssignments = await Assignment.find({ 
       eventId: eventId,
       status: 'Active' 
     });
 
     console.log(`📋 ${hotelAssignments.length} assignations trouvées`);
-
-    // 🆕 AJOUTER CES LOGS :
-    hotelAssignments.forEach(assignment => {
-      console.log(`🏨 Assignment ID: ${assignment._id}`);
-      console.log(`🏨 Hotel ID: ${assignment.hotelId}`);
-      console.log(`🏨 Total Capacity: ${assignment.totalCapacity}`);
-      console.log(`🏨 Available Rooms:`, assignment.availableRooms);
-      console.log('🏨 Assignment complet:', JSON.stringify(assignment, null, 2));
-    });
 
     // Récupérer les détails des hôtels
     const assignedHotelIds = hotelAssignments.map(a => a.hotelId);
@@ -51,30 +42,16 @@ router.get('/available-hotels/:eventId', async (req, res) => {
         a.hotelId.toString() === hotel._id.toString()
       );
 
-      // 🆕 LOGS DE DEBUG DÉTAILLÉS
-      console.log(`🏨 Hotel: ${hotel.name}`);
-      console.log(`🏨 Assignment exists:`, !!assignment);
-      if (assignment) {
-        console.log(`🏨 Assignment._id:`, assignment._id);
-        console.log(`🏨 Assignment.totalCapacity direct:`, assignment.totalCapacity);
-        console.log(`🏨 Assignment keys:`, Object.keys(assignment));
-        console.log(`🏨 Assignment toObject:`, assignment.toObject ? assignment.toObject().totalCapacity : 'pas toObject');
-        console.log(`🏨 Assignment get:`, assignment.get ? assignment.get('totalCapacity') : 'pas get');
-      }
-
-      // 🆕 ESSAYER DIFFÉRENTES FAÇONS D'ACCÉDER À totalCapacity
-      const totalCapacity = assignment?.totalCapacity || 
-                         assignment?.get?.('totalCapacity') || 
-                         assignment?.toObject?.()?.totalCapacity || 
-                         hotel.totalCapacity || 0;
-
-      console.log(`🏨 Final totalCapacity: ${totalCapacity}`);
-      const occupancy = assignment?.totalAssigned || assignment?.stats?.totalAssigned || 0;
+      // Utiliser les accesseurs Mongoose corrects
+      const totalCapacity = assignment?.get?.('totalCapacity') || 
+                           assignment?.toObject?.()?.totalCapacity || 
+                           hotel.totalCapacity || 0;
+                       
+      const occupancy = assignment?.get?.('totalAssigned') || 
+                       assignment?.toObject?.()?.totalAssigned || 0;
+                       
       const availableRooms = Math.max(0, totalCapacity - occupancy);
       const occupancyRate = totalCapacity > 0 ? Math.round((occupancy / totalCapacity) * 100) : 0;
-
-      // 🆕 DEBUG : Ajouter un log pour vérifier
-      console.log(`🏨 ${hotel.name}: totalCapacity=${totalCapacity}, occupancy=${occupancy}, available=${availableRooms}`);
       
       return {
         _id: hotel._id,
@@ -89,7 +66,7 @@ router.get('/available-hotels/:eventId', async (req, res) => {
         occupancyRate: occupancyRate,
         isAvailable: availableRooms > 0,
         contact: hotel.contact,
-        assignmentId: assignment?._id // 🆕 ID de l'assignation
+        assignmentId: assignment?._id
       };
     });
 
@@ -116,7 +93,6 @@ router.get('/available-hotels/:eventId', async (req, res) => {
     });
   }
 });
-
 
 // GET /api/assignments/event/:eventId - Récupérer les assignations d'un événement
 router.get('/event/:eventId', async (req, res) => {
@@ -412,19 +388,13 @@ router.post('/auto-assign/:eventId', async (req, res) => {
           errors.push(result.error);
         }
       } catch (error) {
-        errors.push(`Erreur client ${client.firstName} ${client.lastName}: ${error.message}`);
+        errors.push(`Erreur client "${client.firstName} ${client.lastName}": ${error.message}`);
       }
     }
 
-    // Marquer la dernière assignation automatique
-    await Assignment.updateMany(
-      { eventId: eventId },
-      { lastAutoAssignment: new Date() }
-    );
-
     res.json({
       success: true,
-      message: `Assignation automatique terminée: ${assignedCount} client(s) assigné(s)`,
+      message: `Assignation automatique terminée: ${assignedCount} clients assignés`,
       data: {
         assignedCount,
         totalClients: unassignedClients.length,
@@ -443,288 +413,70 @@ router.post('/auto-assign/:eventId', async (req, res) => {
   }
 });
 
-// Fonction helper pour assigner un groupe
-async function assignGroup(members, hotels, eventId, allowMixedGroups, maxClientsPerRoom) {
-  const groupSize = members.length;
-  const groupName = members[0].groupName;
-  
-  // Vérifier si le groupe est mixte
-  const genders = [...new Set(members.map(m => m.gender))];
-  const isMixed = genders.length > 1;
-  
-  if (isMixed && !allowMixedGroups) {
-    // Chercher un hôtel VIP pour groupes mixtes
-    const vipHotels = hotels.filter(h => h.category === 'VIP' || h.allowMixedGroups);
-    
-    for (const hotel of vipHotels) {
-      const assignment = await Assignment.findOne({ eventId, hotelId: hotel._id }) ||
-        new Assignment({ eventId, hotelId: hotel._id, logicalRooms: [] });
-      
-      // Calculer la capacité disponible
-      const availableCapacity = hotel.totalCapacity - assignment.stats.totalAssigned;
-      
-      if (availableCapacity >= groupSize) {
-        // Créer une chambre logique pour le groupe
-        const logicalRoomId = `group_${groupName.replace(/\s+/g, '_')}_${Date.now()}`;
-        const logicalRoom = {
-          logicalRoomId,
-          roomType: 'Mixed',
-          bedCount: Math.ceil(groupSize / 2),
-          maxCapacity: Math.max(groupSize, maxClientsPerRoom),
-          assignedClients: members.map(member => ({
-            clientId: member._id,
-            assignmentType: 'auto',
-            assignedBy: 'system',
-            assignedAt: new Date()
-          })),
-          currentOccupancy: groupSize,
-          isFullyOccupied: groupSize >= maxClientsPerRoom
-        };
-        
-        assignment.logicalRooms.push(logicalRoom);
-        assignment.updateStats();
-        await assignment.save();
-        
-        // Mettre à jour les clients
-        await Client.updateMany(
-          { _id: { $in: members.map(m => m._id) } },
-          { status: 'Assigné', assignedHotel: hotel._id }
-        );
-        
-        return {
-          success: true,
-          assignedCount: groupSize,
-          assignments: [{
-            type: 'group',
-            groupName: groupName,
-            members: groupSize,
-            hotel: hotel.name,
-            isMixed: true,
-            logicalRoomId: logicalRoomId
-          }]
-        };
-      }
-    }
-    
-    return {
-      success: false,
-      error: `Groupe mixte "${groupName}" nécessite un hôtel VIP non disponible`
-    };
-  } else {
-    // Groupe non mixte, chercher n'importe quel hôtel avec capacité
-    for (const hotel of hotels) {
-      const assignment = await Assignment.findOne({ eventId, hotelId: hotel._id }) ||
-        new Assignment({ eventId, hotelId: hotel._id, logicalRooms: [] });
-      
-      const availableCapacity = hotel.totalCapacity - assignment.stats.totalAssigned;
-      
-      if (availableCapacity >= groupSize) {
-        const logicalRoomId = `group_${groupName.replace(/\s+/g, '_')}_${Date.now()}`;
-        const roomType = genders[0] === 'Homme' ? 'Groupe_Homme' : 'Groupe_Femme';
-        
-        const logicalRoom = {
-          logicalRoomId,
-          roomType,
-          bedCount: Math.ceil(groupSize / 2),
-          maxCapacity: Math.max(groupSize, maxClientsPerRoom),
-          assignedClients: members.map(member => ({
-            clientId: member._id,
-            assignmentType: 'auto',
-            assignedBy: 'system',
-            assignedAt: new Date()
-          })),
-          currentOccupancy: groupSize,
-          isFullyOccupied: groupSize >= maxClientsPerRoom
-        };
-        
-        assignment.logicalRooms.push(logicalRoom);
-        assignment.updateStats();
-        await assignment.save();
-        
-        await Client.updateMany(
-          { _id: { $in: members.map(m => m._id) } },
-          { status: 'Assigné', assignedHotel: hotel._id }
-        );
-        
-        return {
-          success: true,
-          assignedCount: groupSize,
-          assignments: [{
-            type: 'group',
-            groupName: groupName,
-            members: groupSize,
-            hotel: hotel.name,
-            isMixed: false,
-            logicalRoomId: logicalRoomId
-          }]
-        };
-      }
-    }
-    
-    return {
-      success: false,
-      error: `Pas assez de place pour le groupe "${groupName}" (${groupSize} personnes)`
-    };
-  }
-}
-
-// Fonction helper pour assigner un client solo
-async function assignSoloClient(client, hotels, eventId, maxClientsPerRoom) {
-  const clientRoomType = getRoomTypeForClient(client);
-  
-  for (const hotel of hotels) {
-    let assignment = await Assignment.findOne({ eventId, hotelId: hotel._id });
-    
-    if (!assignment) {
-      assignment = new Assignment({ eventId, hotelId: hotel._id, logicalRooms: [] });
-    }
-    
-    // Chercher une chambre logique compatible avec de la place disponible
-    let suitableRoom = assignment.logicalRooms.find(room => 
-      room.roomType === clientRoomType && 
-      room.assignedClients.length < room.maxCapacity
-    );
-    
-    if (!suitableRoom) {
-      // Créer une nouvelle chambre logique
-      const logicalRoomId = `solo_${client._id}_${Date.now()}`;
-      suitableRoom = {
-        logicalRoomId,
-        roomType: clientRoomType,
-        bedCount: 2,
-        maxCapacity: maxClientsPerRoom,
-        assignedClients: [],
-        currentOccupancy: 0,
-        isFullyOccupied: false
-      };
-      assignment.logicalRooms.push(suitableRoom);
-    }
-    
-    // Vérifier la capacité globale de l'hôtel
-    const availableCapacity = hotel.totalCapacity - assignment.stats.totalAssigned;
-    
-    if (availableCapacity > 0) {
-      suitableRoom.assignedClients.push({
-        clientId: client._id,
-        assignmentType: 'auto',
-        assignedBy: 'system',
-        assignedAt: new Date()
-      });
-      
-      assignment.updateStats();
-      await assignment.save();
-      
-      client.status = 'Assigné';
-      client.assignedHotel = hotel._id;
-      await client.save();
-      
-      return {
-        success: true,
-        assignment: {
-          type: 'solo',
-          client: `${client.firstName} ${client.lastName}`,
-          hotel: hotel.name,
-          logicalRoomId: suitableRoom.logicalRoomId
-        }
-      };
-    }
-  }
-  
-  return {
-    success: false,
-    error: `Pas de place disponible pour ${client.firstName} ${client.lastName}`
-  };
-}
-
-// Fonction helper pour déterminer le type de chambre
-function getRoomTypeForClient(client) {
-  if (client.clientType === 'VIP') return 'VIP';
-  if (client.clientType === 'Influenceur') return 'Influenceur';
-  if (client.clientType === 'Staff') {
-    return client.gender === 'Homme' ? 'Staff_Homme' : 'Staff_Femme';
-  }
-  return client.gender === 'Homme' ? 'Groupe_Homme' : 'Groupe_Femme';
-}
-
-// DELETE /api/assignments/remove-client - Retirer un client d'une assignation
-router.delete('/remove-client', async (req, res) => {
+// DELETE /api/assignments/unassign/:clientId - Désassigner un client
+router.delete('/unassign/:clientId', async (req, res) => {
   try {
-    const { clientId, eventId } = req.body;
+    const { clientId } = req.params;
+    
+    const client = await Client.findById(clientId);
+    if (!client) {
+      return res.status(404).json({
+        success: false,
+        message: 'Client non trouvé'
+      });
+    }
 
     // Trouver l'assignation contenant ce client
     const assignment = await Assignment.findOne({
-      eventId: eventId,
       'logicalRooms.assignedClients.clientId': clientId
     });
 
     if (!assignment) {
       return res.status(404).json({
         success: false,
-        message: 'Client non trouvé dans les assignations'
+        message: 'Aucune assignation trouvée pour ce client'
       });
     }
 
-    // Trouver et supprimer le client de la chambre logique
-    let clientRemoved = false;
-    let roomToRemove = null;
-
-    assignment.logicalRooms.forEach((room, roomIndex) => {
-      const clientIndex = room.assignedClients.findIndex(
-        ac => ac.clientId.toString() === clientId
+    // Retirer le client de toutes les chambres logiques
+    let removed = false;
+    assignment.logicalRooms.forEach(room => {
+      const initialLength = room.assignedClients.length;
+      room.assignedClients = room.assignedClients.filter(
+        ac => ac.clientId.toString() !== clientId
       );
-      
-      if (clientIndex !== -1) {
-        room.assignedClients.splice(clientIndex, 1);
-        clientRemoved = true;
-        
-        // Si la chambre est vide, la marquer pour suppression
-        if (room.assignedClients.length === 0) {
-          roomToRemove = roomIndex;
-        }
+      if (room.assignedClients.length < initialLength) {
+        removed = true;
+        room.currentOccupancy = room.assignedClients.length;
+        room.isFullyOccupied = room.assignedClients.length >= room.maxCapacity;
       }
     });
 
-    if (!clientRemoved) {
-      return res.status(404).json({
-        success: false,
-        message: 'Client non trouvé dans cette assignation'
-      });
-    }
-
-    // Supprimer la chambre vide si nécessaire
-    if (roomToRemove !== null) {
-      assignment.logicalRooms.splice(roomToRemove, 1);
-    }
+    // Supprimer les chambres vides
+    assignment.logicalRooms = assignment.logicalRooms.filter(
+      room => room.assignedClients.length > 0
+    );
 
     // Mettre à jour les statistiques
     assignment.updateStats();
     await assignment.save();
 
     // Mettre à jour le statut du client
-    const client = await Client.findById(clientId);
-    if (client) {
-      client.status = 'En attente';
-      client.assignedHotel = null;
-      await client.save();
-    }
-
-    await assignment.populate('hotelId', 'name');
+    client.status = 'En attente';
+    client.assignedHotel = null;
+    await client.save();
 
     res.json({
       success: true,
-      message: 'Client retiré de l\'assignation avec succès',
-      data: {
-        client: client,
-        hotel: assignment.hotelId.name,
-        assignment: assignment
-      }
+      message: `${client.firstName} ${client.lastName} a été désassigné(e)`,
+      data: { client, removed }
     });
 
   } catch (error) {
-    console.error('Erreur suppression assignation:', error);
+    console.error('Erreur désassignation:', error);
     res.status(500).json({
       success: false,
-      message: 'Erreur serveur lors de la suppression',
+      message: 'Erreur serveur lors de la désassignation',
       error: error.message
     });
   }
@@ -735,349 +487,6 @@ router.get('/stats/:eventId', async (req, res) => {
   try {
     const { eventId } = req.params;
     
-    const [clients, assignments, hotels] = await Promise.all([
-      Client.find({ eventId }),
-      Assignment.find({ eventId }).populate('hotelId', 'name category'),
-      Hotel.find({ eventId })
-    ]);
-
-    // Statistiques globales
-    const totalAssigned = assignments.reduce((sum, a) => sum + a.stats.totalAssigned, 0);
-    const totalCapacity = assignments.reduce((sum, a) => sum + a.stats.totalCapacity, 0);
-
-    const stats = {
-      clients: {
-        total: clients.length,
-        assigned: clients.filter(c => c.status === 'Assigné').length,
-        unassigned: clients.filter(c => c.status !== 'Assigné').length,
-        byType: clients.reduce((acc, c) => {
-          acc[c.clientType] = (acc[c.clientType] || 0) + 1;
-          return acc;
-        }, {}),
-        byGender: clients.reduce((acc, c) => {
-          acc[c.gender] = (acc[c.gender] || 0) + 1;
-          return acc;
-        }, {}),
-        groups: {
-          total: clients.filter(c => c.clientType === 'Groupe').length,
-          mixed: await getMixedGroupsCount(clients)
-        }
-      },
-      hotels: {
-        total: hotels.length,
-        totalCapacity: hotels.reduce((sum, h) => sum + h.totalCapacity, 0),
-        totalAssigned: totalAssigned,
-        byCategory: hotels.reduce((acc, h) => {
-          if (!acc[h.category]) {
-            acc[h.category] = { count: 0, capacity: 0, assigned: 0 };
-          }
-          acc[h.category].count++;
-          acc[h.category].capacity += h.totalCapacity;
-          return acc;
-        }, {}),
-        occupancy: assignments.map(a => ({
-          name: a.hotelId.name,
-          category: a.hotelId.category,
-          capacity: a.stats.totalCapacity,
-          assigned: a.stats.totalAssigned,
-          rate: a.stats.occupancyRate
-        }))
-      },
-      logicalRooms: {
-        total: assignments.reduce((sum, a) => sum + a.stats.totalLogicalRooms, 0),
-        byType: assignments.reduce((acc, a) => {
-          a.logicalRooms.forEach(room => {
-            acc[room.roomType] = (acc[room.roomType] || 0) + 1;
-          });
-          return acc;
-        }, {}),
-        fullyOccupied: assignments.reduce((sum, a) => 
-          sum + a.logicalRooms.filter(r => r.isFullyOccupied).length, 0)
-      },
-      summary: {
-        assignmentRate: clients.length > 0 ? 
-          (clients.filter(c => c.status === 'Assigné').length / clients.length * 100).toFixed(1) : 0,
-        occupancyRate: totalCapacity > 0 ? (totalAssigned / totalCapacity * 100).toFixed(1) : 0,
-        availableSpots: totalCapacity - totalAssigned,
-        activeAssignments: assignments.filter(a => a.status === 'Active').length
-      }
-    };
-
-    // Enrichir les stats par catégorie d'hôtel avec les assignations
-    for (const assignment of assignments) {
-      const category = assignment.hotelId.category;
-      if (stats.hotels.byCategory[category]) {
-        stats.hotels.byCategory[category].assigned += assignment.stats.totalAssigned;
-      }
-    }
-
-    res.json({
-      success: true,
-      data: stats
-    });
-  } catch (error) {
-    console.error('Erreur stats assignation:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Erreur serveur lors de la récupération des statistiques',
-      error: error.message
-    });
-  }
-});
-
-// Fonction helper pour compter les groupes mixtes
-async function getMixedGroupsCount(clients) {
-  const groups = {};
-  clients.filter(c => c.groupName).forEach(client => {
-    if (!groups[client.groupName]) {
-      groups[client.groupName] = new Set();
-    }
-    groups[client.groupName].add(client.gender);
-  });
-  
-  return Object.values(groups).filter(genders => genders.size > 1).length;
-}
-
-// PUT /api/assignments/move-client - Déplacer un client entre chambres/hôtels
-router.put('/move-client', async (req, res) => {
-  try {
-    const { 
-      clientId, 
-      eventId, 
-      newHotelId, 
-      newLogicalRoomId, 
-      createNewRoom = false,
-      roomType = 'Groupe_Mixte',
-      maxCapacity = 4 
-    } = req.body;
-
-    // Trouver l'assignation actuelle
-    const currentAssignment = await Assignment.findOne({
-      eventId: eventId,
-      'logicalRooms.assignedClients.clientId': clientId
-    });
-
-    if (!currentAssignment) {
-      return res.status(404).json({
-        success: false,
-        message: 'Client non trouvé dans les assignations actuelles'
-      });
-    }
-
-    // Récupérer les informations du client
-    const client = await Client.findById(clientId);
-    if (!client) {
-      return res.status(404).json({
-        success: false,
-        message: 'Client non trouvé'
-      });
-    }
-
-    // Supprimer le client de l'assignation actuelle
-    let currentRoom = null;
-    let currentRoomIndex = -1;
-
-    currentAssignment.logicalRooms.forEach((room, index) => {
-      const clientIndex = room.assignedClients.findIndex(
-        ac => ac.clientId.toString() === clientId
-      );
-      if (clientIndex !== -1) {
-        currentRoom = room;
-        currentRoomIndex = index;
-        room.assignedClients.splice(clientIndex, 1);
-      }
-    });
-
-    // Si la chambre actuelle est vide, la supprimer
-    if (currentRoom && currentRoom.assignedClients.length === 0) {
-      currentAssignment.logicalRooms.splice(currentRoomIndex, 1);
-    }
-
-    // Trouver ou créer la nouvelle assignation
-    let newAssignment = await Assignment.findOne({ 
-      eventId: eventId, 
-      hotelId: newHotelId 
-    });
-
-    if (!newAssignment) {
-      newAssignment = new Assignment({
-        eventId,
-        hotelId: newHotelId,
-        logicalRooms: [],
-        status: 'Active'
-      });
-    }
-
-    // Gérer la nouvelle chambre logique
-    let targetRoom = null;
-
-    if (createNewRoom || !newLogicalRoomId) {
-      // Créer une nouvelle chambre
-      const newRoomId = `moved_${clientId}_${Date.now()}`;
-      targetRoom = {
-        logicalRoomId: newRoomId,
-        roomType: roomType,
-        bedCount: 2,
-        maxCapacity: maxCapacity,
-        assignedClients: [],
-        currentOccupancy: 0,
-        isFullyOccupied: false
-      };
-      newAssignment.logicalRooms.push(targetRoom);
-    } else {
-      // Utiliser une chambre existante
-      targetRoom = newAssignment.logicalRooms.find(
-        room => room.logicalRoomId === newLogicalRoomId
-      );
-      
-      if (!targetRoom) {
-        return res.status(404).json({
-          success: false,
-          message: 'Chambre logique de destination non trouvée'
-        });
-      }
-
-      // Vérifier la capacité
-      if (targetRoom.assignedClients.length >= targetRoom.maxCapacity) {
-        return res.status(400).json({
-          success: false,
-          message: 'La chambre de destination est pleine'
-        });
-      }
-    }
-
-    // Ajouter le client à la nouvelle chambre
-    targetRoom.assignedClients.push({
-      clientId: clientId,
-      assignmentType: 'manual',
-      assignedBy: req.user?.id || 'manual',
-      assignedAt: new Date()
-    });
-
-    // Mettre à jour les statistiques des deux assignations
-    currentAssignment.updateStats();
-    newAssignment.updateStats();
-
-    // Sauvegarder les assignations
-    await Promise.all([
-      currentAssignment.save(),
-      newAssignment.save()
-    ]);
-
-    // Mettre à jour le client
-    client.assignedHotel = newHotelId;
-    await client.save();
-
-    // Peupler les données pour la réponse
-    await Promise.all([
-      currentAssignment.populate('hotelId', 'name'),
-      newAssignment.populate('hotelId', 'name')
-    ]);
-
-    res.json({
-      success: true,
-      message: `${client.firstName} ${client.lastName} déplacé(e) vers ${newAssignment.hotelId.name}`,
-      data: {
-        client: client,
-        from: {
-          hotel: currentAssignment.hotelId.name,
-          roomId: currentRoom?.logicalRoomId
-        },
-        to: {
-          hotel: newAssignment.hotelId.name,
-          roomId: targetRoom.logicalRoomId
-        }
-      }
-    });
-
-  } catch (error) {
-    console.error('Erreur déplacement client:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Erreur serveur lors du déplacement',
-      error: error.message
-    });
-  }
-});
-
-// PUT /api/assignments/room/:assignmentId/:logicalRoomId - Mettre à jour une chambre logique
-router.put('/room/:assignmentId/:logicalRoomId', async (req, res) => {
-  try {
-    const { assignmentId, logicalRoomId } = req.params;
-    const { realRoomNumber, bedCount, maxCapacity, notes } = req.body;
-
-    const assignment = await Assignment.findById(assignmentId);
-    if (!assignment) {
-      return res.status(404).json({
-        success: false,
-        message: 'Assignation non trouvée'
-      });
-    }
-
-    const logicalRoom = assignment.logicalRooms.find(
-      room => room.logicalRoomId === logicalRoomId
-    );
-
-    if (!logicalRoom) {
-      return res.status(404).json({
-        success: false,
-        message: 'Chambre logique non trouvée'
-      });
-    }
-
-    // Mettre à jour les champs
-    if (realRoomNumber !== undefined) {
-      logicalRoom.realRoomNumber = realRoomNumber;
-    }
-    if (bedCount !== undefined) {
-      logicalRoom.bedCount = Math.max(1, parseInt(bedCount));
-    }
-    if (maxCapacity !== undefined) {
-      const newCapacity = Math.max(1, parseInt(maxCapacity));
-      
-      // Vérifier que la nouvelle capacité peut accueillir les clients actuels
-      if (newCapacity < logicalRoom.assignedClients.length) {
-        return res.status(400).json({
-          success: false,
-          message: `Impossible de réduire la capacité à ${newCapacity}. ${logicalRoom.assignedClients.length} client(s) actuellement assigné(s).`
-        });
-      }
-      
-      logicalRoom.maxCapacity = newCapacity;
-    }
-
-    // Mettre à jour les statistiques
-    assignment.updateStats();
-    await assignment.save();
-
-    await assignment.populate('hotelId', 'name address');
-    await assignment.populate('logicalRooms.assignedClients.clientId', 'firstName lastName');
-
-    res.json({
-      success: true,
-      message: 'Chambre logique mise à jour avec succès',
-      data: {
-        assignment: assignment,
-        updatedRoom: logicalRoom
-      }
-    });
-
-  } catch (error) {
-    console.error('Erreur mise à jour chambre:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Erreur serveur lors de la mise à jour',
-      error: error.message
-    });
-  }
-});
-
-// DELETE /api/assignments/event/:eventId - Supprimer toutes les assignations d'un événement
-router.delete('/event/:eventId', async (req, res) => {
-  try {
-    const { eventId } = req.params;
-
-    // Vérifier que l'événement existe
     const event = await Event.findById(eventId);
     if (!event) {
       return res.status(404).json({
@@ -1086,168 +495,269 @@ router.delete('/event/:eventId', async (req, res) => {
       });
     }
 
-    // Supprimer toutes les assignations
-    const deleteResult = await Assignment.deleteMany({ eventId: eventId });
+    const [totalClients, assignedClients, assignments] = await Promise.all([
+      Client.countDocuments({ eventId }),
+      Client.countDocuments({ eventId, status: 'Assigné' }),
+      Assignment.find({ eventId }).populate('hotelId', 'name')
+    ]);
 
-    // Remettre tous les clients en attente
-    const updateResult = await Client.updateMany(
-      { eventId: eventId, status: 'Assigné' },
-      { 
-        status: 'En attente', 
-        assignedHotel: null 
-      }
-    );
+    // Statistiques par hôtel
+    const hotelStats = assignments.map(assignment => ({
+      hotel: assignment.hotelId.name,
+      totalCapacity: assignment.stats.totalCapacity,
+      assigned: assignment.stats.totalAssigned,
+      occupancyRate: assignment.stats.occupancyRate,
+      availableRooms: assignment.stats.totalCapacity - assignment.stats.totalAssigned,
+      logicalRoomsCount: assignment.logicalRooms.length
+    }));
 
-    console.log(`🗑️ Assignations supprimées pour l'événement: ${event.name}`);
-    console.log(`✅ ${deleteResult.deletedCount} assignations supprimées`);
-    console.log(`✅ ${updateResult.modifiedCount} clients remis en attente`);
-
-    res.json({
-      success: true,
-      message: `Toutes les assignations de l'événement "${event.name}" ont été supprimées`,
-      data: {
-        event: event.name,
-        deletedAssignments: deleteResult.deletedCount,
-        updatedClients: updateResult.modifiedCount
-      }
-    });
-
-  } catch (error) {
-    console.error('❌ Erreur suppression assignations événement:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Erreur serveur lors de la suppression des assignations',
-      error: error.message
-    });
-  }
-});
-
-// PUT /api/assignments/status/:assignmentId - Changer le statut d'une assignation
-router.put('/status/:assignmentId', async (req, res) => {
-  try {
-    const { assignmentId } = req.params;
-    const { status, notes } = req.body;
-
-    const validStatuses = ['Draft', 'Active', 'OnSite', 'Completed'];
-    if (!validStatuses.includes(status)) {
-      return res.status(400).json({
-        success: false,
-        message: `Statut invalide. Valeurs acceptées: ${validStatuses.join(', ')}`
-      });
-    }
-
-    const assignment = await Assignment.findById(assignmentId)
-      .populate('hotelId', 'name')
-      .populate('eventId', 'name');
-
-    if (!assignment) {
-      return res.status(404).json({
-        success: false,
-        message: 'Assignation non trouvée'
-      });
-    }
-
-    const oldStatus = assignment.status;
-    assignment.status = status;
-    
-    if (notes !== undefined) {
-      assignment.notes = notes;
-    }
-
-    await assignment.save();
-
-    res.json({
-      success: true,
-      message: `Statut de l'assignation changé de "${oldStatus}" à "${status}"`,
-      data: {
-        assignment: assignment,
-        hotel: assignment.hotelId.name,
-        event: assignment.eventId.name,
-        statusChange: {
-          from: oldStatus,
-          to: status
+    // Statistiques par type de client
+    const clientTypeStats = await Client.aggregate([
+      { $match: { eventId: mongoose.Types.ObjectId(eventId) } },
+      {
+        $group: {
+          _id: '$clientType',
+          total: { $sum: 1 },
+          assigned: {
+            $sum: { $cond: [{ $eq: ['$status', 'Assigné'] }, 1, 0] }
+          }
         }
       }
-    });
-
-  } catch (error) {
-    console.error('Erreur changement statut:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Erreur serveur lors du changement de statut',
-      error: error.message
-    });
-  }
-});
-
-// GET /api/assignments/export/:eventId - Exporter les assignations
-router.get('/export/:eventId', async (req, res) => {
-  try {
-    const { eventId } = req.params;
-    const { format = 'json' } = req.query;
-
-    const assignments = await Assignment.find({ eventId })
-      .populate('hotelId', 'name address category contact')
-      .populate('eventId', 'name country city dates')
-      .populate('logicalRooms.assignedClients.clientId', 'firstName lastName phone email gender clientType groupName');
-
-    // Transformer les données pour l'export
-    const exportData = {
-      event: assignments[0]?.eventId || null,
-      exportDate: new Date().toISOString(),
-      totalAssignments: assignments.length,
-      data: assignments.map(assignment => ({
-        hotel: {
-          id: assignment.hotelId._id,
-          name: assignment.hotelId.name,
-          address: assignment.hotelId.address,
-          category: assignment.hotelId.category,
-          contact: assignment.hotelId.contact
-        },
-        stats: assignment.stats,
-        status: assignment.status,
-        rooms: assignment.logicalRooms.map(room => ({
-          logicalRoomId: room.logicalRoomId,
-          realRoomNumber: room.realRoomNumber,
-          roomType: room.roomType,
-          capacity: room.maxCapacity,
-          occupancy: room.currentOccupancy,
-          clients: room.assignedClients.map(ac => ({
-            id: ac.clientId._id,
-            name: `${ac.clientId.firstName} ${ac.clientId.lastName}`,
-            phone: ac.clientId.phone,
-            email: ac.clientId.email,
-            gender: ac.clientId.gender,
-            type: ac.clientId.clientType,
-            group: ac.clientId.groupName,
-            assignedAt: ac.assignedAt,
-            assignmentType: ac.assignmentType
-          }))
-        }))
-      }))
-    };
-
-    if (format === 'csv') {
-      // TODO: Implémenter l'export CSV si nécessaire
-      return res.status(501).json({
-        success: false,
-        message: 'Export CSV pas encore implémenté'
-      });
-    }
+    ]);
 
     res.json({
       success: true,
-      data: exportData
+      data: {
+        event: event.name,
+        overview: {
+          totalClients,
+          assignedClients,
+          unassignedClients: totalClients - assignedClients,
+          assignmentRate: totalClients > 0 ? Math.round((assignedClients / totalClients) * 100) : 0
+        },
+        hotelStats,
+        clientTypeStats
+      }
     });
 
   } catch (error) {
-    console.error('Erreur export assignations:', error);
+    console.error('Erreur statistiques assignation:', error);
     res.status(500).json({
       success: false,
-      message: 'Erreur serveur lors de l\'export',
-      error: error.message
+      message: 'Erreur serveur lors de la récupération des statistiques'
     });
   }
 });
+
+// Fonctions utilitaires pour l'assignation automatique
+
+async function assignGroup(members, hotels, eventId, allowMixedGroups, maxClientsPerRoom) {
+  try {
+    const groupName = members[0].groupName;
+    const genders = [...new Set(members.map(m => m.gender))];
+    const isMixed = genders.length > 1;
+
+    // Déterminer le type de chambre nécessaire
+    let roomType = 'Groupe';
+    if (isMixed && !allowMixedGroups) {
+      return {
+        success: false,
+        error: `Groupe "${groupName}" est mixte mais les groupes mixtes ne sont pas autorisés`
+      };
+    }
+
+    if (isMixed) {
+      roomType = 'Mixed';
+    } else {
+      roomType = genders[0] === 'Homme' ? 'Groupe_Homme' : 'Groupe_Femme';
+    }
+
+    // Chercher un hôtel avec suffisamment de place
+    for (const hotel of hotels) {
+      let assignment = await Assignment.findOne({ eventId, hotelId: hotel._id });
+      
+      if (!assignment) {
+        assignment = new Assignment({
+          eventId,
+          hotelId: hotel._id,
+          logicalRooms: [],
+          status: 'Active'
+        });
+      }
+
+      // Calculer l'espace disponible
+      const currentOccupancy = assignment.stats.totalAssigned || 0;
+      const totalCapacity = assignment.totalCapacity || hotel.totalCapacity || 0;
+      const availableSpace = totalCapacity - currentOccupancy;
+
+      if (availableSpace >= members.length) {
+        // Créer une chambre logique pour le groupe
+        const logicalRoomId = `group_${groupName.replace(/\s+/g, '_')}_${Date.now()}`;
+        const logicalRoom = {
+          logicalRoomId,
+          roomType,
+          bedCount: Math.ceil(members.length / 2),
+          maxCapacity: Math.min(members.length, maxClientsPerRoom),
+          assignedClients: members.map(member => ({
+            clientId: member._id,
+            assignmentType: 'auto',
+            assignedBy: 'system',
+            assignedAt: new Date()
+          })),
+          currentOccupancy: members.length,
+          isFullyOccupied: true
+        };
+
+        assignment.logicalRooms.push(logicalRoom);
+        assignment.updateStats();
+        await assignment.save();
+
+        // Mettre à jour les clients
+        await Promise.all(members.map(member => {
+          member.status = 'Assigné';
+          member.assignedHotel = hotel._id;
+          return member.save();
+        }));
+
+        return {
+          success: true,
+          assignedCount: members.length,
+          assignments: [{
+            hotel: hotel.name,
+            logicalRoom: logicalRoomId,
+            clients: members.map(m => `${m.firstName} ${m.lastName}`)
+          }]
+        };
+      }
+    }
+
+    return {
+      success: false,
+      error: `Pas assez d'espace disponible pour le groupe "${groupName}" (${members.length} personnes)`
+    };
+
+  } catch (error) {
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+}
+
+async function assignSoloClient(client, hotels, eventId, maxClientsPerRoom) {
+  try {
+    // Déterminer le type de chambre approprié
+    let roomType = 'Solo';
+    if (client.clientType === 'VIP') {
+      roomType = 'VIP';
+    } else if (client.clientType === 'Influenceur') {
+      roomType = 'Influenceur';
+    } else if (client.clientType === 'Staff') {
+      roomType = client.gender === 'Homme' ? 'Staff_Homme' : 'Staff_Femme';
+    } else {
+      roomType = client.gender === 'Homme' ? 'Solo_Homme' : 'Solo_Femme';
+    }
+
+    // Chercher une chambre existante compatible
+    for (const hotel of hotels) {
+      let assignment = await Assignment.findOne({ eventId, hotelId: hotel._id });
+      
+      if (!assignment) {
+        assignment = new Assignment({
+          eventId,
+          hotelId: hotel._id,
+          logicalRooms: [],
+          status: 'Active'
+        });
+      }
+
+      // Chercher une chambre logique existante compatible
+      const compatibleRoom = assignment.logicalRooms.find(room => 
+        room.roomType === roomType && 
+        room.assignedClients.length < room.maxCapacity &&
+        !room.isFullyOccupied
+      );
+
+      if (compatibleRoom) {
+        // Ajouter le client à cette chambre
+        compatibleRoom.assignedClients.push({
+          clientId: client._id,
+          assignmentType: 'auto',
+          assignedBy: 'system',
+          assignedAt: new Date()
+        });
+        compatibleRoom.currentOccupancy = compatibleRoom.assignedClients.length;
+        compatibleRoom.isFullyOccupied = compatibleRoom.assignedClients.length >= compatibleRoom.maxCapacity;
+
+        assignment.updateStats();
+        await assignment.save();
+
+        client.status = 'Assigné';
+        client.assignedHotel = hotel._id;
+        await client.save();
+
+        return {
+          success: true,
+          assignment: {
+            hotel: hotel.name,
+            logicalRoom: compatibleRoom.logicalRoomId,
+            client: `${client.firstName} ${client.lastName}`
+          }
+        };
+      }
+
+      // Sinon, créer une nouvelle chambre si l'hôtel a de l'espace
+      const currentOccupancy = assignment.stats.totalAssigned || 0;
+      const totalCapacity = assignment.totalCapacity || hotel.totalCapacity || 0;
+      const availableSpace = totalCapacity - currentOccupancy;
+
+      if (availableSpace >= 1) {
+        const logicalRoomId = `solo_${client.firstName}_${client.lastName}_${Date.now()}`.replace(/\s+/g, '_');
+        const newRoom = {
+          logicalRoomId,
+          roomType,
+          bedCount: 1,
+          maxCapacity: Math.min(maxClientsPerRoom, 2),
+          assignedClients: [{
+            clientId: client._id,
+            assignmentType: 'auto',
+            assignedBy: 'system',
+            assignedAt: new Date()
+          }],
+          currentOccupancy: 1,
+          isFullyOccupied: false
+        };
+
+        assignment.logicalRooms.push(newRoom);
+        assignment.updateStats();
+        await assignment.save();
+
+        client.status = 'Assigné';
+        client.assignedHotel = hotel._id;
+        await client.save();
+
+        return {
+          success: true,
+          assignment: {
+            hotel: hotel.name,
+            logicalRoom: logicalRoomId,
+            client: `${client.firstName} ${client.lastName}`
+          }
+        };
+      }
+    }
+
+    return {
+      success: false,
+      error: `Pas d'espace disponible pour ${client.firstName} ${client.lastName}`
+    };
+
+  } catch (error) {
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+}
 
 module.exports = router;
