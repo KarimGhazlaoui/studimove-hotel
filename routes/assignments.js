@@ -6,7 +6,7 @@ const Event = require('../models/Event');
 const Assignment = require('../models/Assignment');
 const mongoose = require('mongoose');
 
-// GET /api/assignments/available-hotels/:eventId - LOGIQUE CORRIGÉE
+// GET /api/assignments/available-hotels/:eventId - VERSION SIMPLIFIÉE POUR TEST
 router.get('/available-hotels/:eventId', async (req, res) => {
   try {
     const { eventId } = req.params;
@@ -22,32 +22,15 @@ router.get('/available-hotels/:eventId', async (req, res) => {
       });
     }
 
-    // 🆕 RÉCUPÉRER TOUS LES HÔTELS (pas seulement ceux avec eventId)
-    const allHotels = await Hotel.find({ 
+    // 🆕 TEMPORAIRE: Retourner TOUS les hôtels actifs (sans vérifier assignments)
+    const allHotels = await Hotel.find({
       status: 'Active'
     }).sort({ name: 1 });
 
     console.log(`📋 ${allHotels.length} hôtels totaux trouvés`);
 
-    // Récupérer les hôtels DÉJÀ assignés à cet événement
-    const existingAssignments = await Assignment.find({
-      eventId: eventId,
-      status: 'Active'
-    });
-    
-    const assignedHotelIds = existingAssignments.map(a => a.hotelId.toString());
-    
-    console.log(`🏨 ${assignedHotelIds.length} hôtels déjà assignés à cet événement`);
-
-    // Filtrer : garder seulement les hôtels NON assignés à cet événement
-    const availableHotels = allHotels.filter(hotel => 
-      !assignedHotelIds.includes(hotel._id.toString())
-    );
-
-    console.log(`✅ ${availableHotels.length} hôtels disponibles pour assignation`);
-
-    // Formatter pour le frontend
-    const hotelsWithStats = availableHotels.map(hotel => ({
+    // 🆕 SIMPLIFICATION: Pas de vérification d'assignments pour l'instant
+    const hotelsWithStats = allHotels.map(hotel => ({
       _id: hotel._id,
       name: hotel.name,
       address: hotel.address,
@@ -82,6 +65,7 @@ router.get('/available-hotels/:eventId', async (req, res) => {
     });
   }
 });
+
 
 // GET /api/assignments/event/:eventId - Récupérer les assignations d'un événement
 router.get('/event/:eventId', async (req, res) => {
