@@ -68,7 +68,6 @@ router.get('/', async (req, res) => {
   }
 });
 
-
 // POST /api/hotels - Créer un nouvel hôtel
 router.post('/', async (req, res) => {
   try {
