@@ -3,38 +3,55 @@ const router = express.Router();
 const Hotel = require('../models/Hotel');
 const Event = require('../models/Event');
 const Client = require('../models/Client');
+const EventHotelAssignment = require('../models/EventHotelAssignment');
 
-// GET /api/hotels - Récupérer tous les hôtels (avec filtre par événement)
+// GET /api/hotels - Récupérer tous les hôtels avec leurs assignations
 router.get('/', async (req, res) => {
   try {
     const { eventId, search, city, status } = req.query;
-    let filter = {};
-
-    // ✅ OPTIONNEL: Filtrer par événement (plus obligatoire)
+    
+    let hotels;
+    
     if (eventId) {
-      filter.eventId = eventId;
+      // ✅ Récupérer les hôtels assignés à cet événement
+      const assignments = await EventHotelAssignment.find({ eventId })
+        .populate('hotelId')
+        .populate('eventId', 'name country city');
+      
+      hotels = assignments.map(assignment => ({
+        ...assignment.hotelId.toObject(),
+        eventInfo: assignment.eventId,
+        assignmentDetails: {
+          totalCapacity: assignment.totalCapacity,
+          totalAssigned: assignment.totalAssigned,
+          availableRooms: assignment.availableRooms,
+          status: assignment.status
+        }
+      }));
+    } else {
+      // ✅ Récupérer tous les hôtels avec leurs assignations
+      let filter = {};
+      
+      // Filtres de recherche
+      if (search) {
+        filter.$or = [
+          { name: { $regex: search, $options: 'i' } },
+          { 'address.city': { $regex: search, $options: 'i' } },
+          { 'address.country': { $regex: search, $options: 'i' } }
+        ];
+      }
+      if (city) filter['address.city'] = { $regex: city, $options: 'i' };
+      if (status && status !== 'all') filter.status = status;
+      
+      hotels = await Hotel.find(filter).sort({ name: 1 });
+      
+      // Ajouter les assignations pour chaque hôtel
+      for (let hotel of hotels) {
+        const assignments = await EventHotelAssignment.find({ hotelId: hotel._id })
+          .populate('eventId', 'name country city');
+        hotel._doc.linkedEvents = assignments;
+      }
     }
-
-    // Autres filtres
-    if (search) {
-      filter.$or = [
-        { name: { $regex: search, $options: 'i' } },
-        { 'address.city': { $regex: search, $options: 'i' } },
-        { 'address.country': { $regex: search, $options: 'i' } }
-      ];
-    }
-
-    if (city) filter['address.city'] = { $regex: city, $options: 'i' };
-    if (status && status !== 'all') filter.status = status;
-
-    const hotels = await Hotel.find(filter)
-      .populate('eventId', 'name country city')
-      .sort({ name: 1 });
-
-    // 🚨 COMMENTÉ TEMPORAIREMENT - CAUSE L'ERREUR DE VALIDATION
-    // for (let hotel of hotels) {
-    //   await hotel.updateAssignedClients();
-    // }
 
     res.json({
       success: true,
