@@ -34,14 +34,29 @@ const app = express();
 app.use(cors({
   origin: [
     'http://localhost:3000',
-    'http://localhost:3001',
-    'https://studimove-hotel.vercel.app',
-    'https://studimove-frontend.vercel.app'
+    'http://localhost:3001', 
+    'https://studimove-hotel.vercel.app',  // ✅ Ton frontend
+    'https://studimove-frontend.vercel.app' // ✅ Au cas où
   ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  optionsSuccessStatus: 200 // ✅ AJOUT pour les navigateurs legacy
 }));
+
+// ✅ AJOUT : Middleware pour les headers CORS manuels
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', req.headers.origin);
+  res.header('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Content-Length, X-Requested-With');
+  res.header('Access-Control-Allow-Credentials', true);
+  
+  if (req.method === 'OPTIONS') {
+    res.sendStatus(200);
+  } else {
+    next();
+  }
+});
 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
