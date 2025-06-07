@@ -6,7 +6,7 @@ const Event = require('../models/Event');
 const Assignment = require('../models/Assignment');
 const mongoose = require('mongoose');
 
-// GET /api/assignments/available-hotels/:eventId - VERSION DEBUG
+// GET /api/assignments/available-hotels/:eventId - FIX CASSE STATUS
 router.get('/available-hotels/:eventId', async (req, res) => {
   try {
     const { eventId } = req.params;
@@ -24,25 +24,24 @@ router.get('/available-hotels/:eventId', async (req, res) => {
       });
     }
 
-    // TEST: Compter tous les hôtels dans la DB
-    const totalHotelsCount = await Hotel.countDocuments();
-    console.log(`🏨 DEBUG - Total hôtels en DB: ${totalHotelsCount}`);
-
-    // TEST: Compter les hôtels actifs
-    const activeHotelsCount = await Hotel.countDocuments({ status: 'Active' });
-    console.log(`✅ DEBUG - Hôtels actifs: ${activeHotelsCount}`);
-
-    // Récupérer TOUS les hôtels (sans filtre)
+    // 🆕 DEBUG: Examiner les statuts réels
     const allHotelsRaw = await Hotel.find({});
-    console.log(`📋 DEBUG - Tous hôtels sans filtre: ${allHotelsRaw.length}`);
-    console.log(`📋 DEBUG - Premier hôtel:`, allHotelsRaw[0] ? {
-      name: allHotelsRaw[0].name, 
-      status: allHotelsRaw[0].status
-    } : 'AUCUN');
+    console.log(`🔍 DEBUG - Statuts réels des hôtels:`);
+    allHotelsRaw.forEach((hotel, index) => {
+      console.log(`  ${index + 1}. "${hotel.name}" - Status: "${hotel.status}" (longueur: ${hotel.status?.length})`);
+    });
 
-    // Récupérer les hôtels actifs
-    const allHotels = await Hotel.find({ status: 'Active' }).sort({ name: 1 });
-    console.log(`🎯 DEBUG - Hôtels actifs trouvés: ${allHotels.length}`);
+    // 🆕 FIX: Recherche insensible à la casse OU tous les hôtels
+    const allHotels = await Hotel.find({
+      $or: [
+        { status: 'Active' },
+        { status: 'active' },
+        { status: { $regex: /^active$/i } },
+        { status: { $exists: false } } // Si pas de status défini
+      ]
+    }).sort({ name: 1 });
+
+    console.log(`🎯 DEBUG - Hôtels trouvés avec regex: ${allHotels.length}`);
 
     // Formatter pour le frontend
     const hotelsWithStats = allHotels.map(hotel => ({
@@ -57,20 +56,14 @@ router.get('/available-hotels/:eventId', async (req, res) => {
       availableRooms: hotel.totalCapacity || 0,
       occupancyRate: 0,
       isAvailable: true,
-      contact: hotel.contact
+      contact: hotel.contact,
+      originalStatus: hotel.status // Pour debug
     }));
-
-    console.log(`📤 DEBUG - Données envoyées: ${hotelsWithStats.length} hôtels`);
 
     res.json({
       success: true,
       count: hotelsWithStats.length,
       data: hotelsWithStats,
-      debug: {
-        totalInDB: totalHotelsCount,
-        activeCount: activeHotelsCount,
-        foundWithoutFilter: allHotelsRaw.length
-      },
       event: {
         _id: event._id,
         name: event.name,
@@ -83,8 +76,7 @@ router.get('/available-hotels/:eventId', async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Erreur serveur',
-      error: error.message,
-      stack: error.stack
+      error: error.message
     });
   }
 });
