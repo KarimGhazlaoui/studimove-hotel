@@ -751,14 +751,21 @@ async function assignSoloClient(client, hotels, eventId, maxClientsPerRoom) {
 // POST /api/assignments - Créer une assignation d'hôtel à un événement
 router.post('/', async (req, res) => {
   try {
+    console.log('🔄 POST /api/assignments - Données reçues:', req.body);
+    
     const { eventId, hotelId, logicalRooms, notes } = req.body;
+    
+    console.log('📋 Validation des IDs:', { eventId, hotelId });
 
     // Vérifications
     const [event, hotel] = await Promise.all([
       Event.findById(eventId),
       Hotel.findById(hotelId)
     ]);
-
+    
+    console.log('🔍 Event trouvé:', event ? event.name : 'NULL');
+    console.log('🏨 Hotel trouvé:', hotel ? hotel.name : 'NULL');
+    
     if (!event || !hotel) {
       return res.status(404).json({
         success: false,
@@ -766,8 +773,13 @@ router.post('/', async (req, res) => {
       });
     }
 
+    console.log('✅ Vérification unicité assignation...');
+    
     // Vérifier si l'assignation existe déjà
     const existingAssignment = await Assignment.findOne({ eventId, hotelId });
+    
+    console.log('🔄 Assignation existante:', existingAssignment ? 'OUI' : 'NON');
+    
     if (existingAssignment) {
       return res.status(400).json({
         success: false,
@@ -775,29 +787,54 @@ router.post('/', async (req, res) => {
       });
     }
 
+    console.log('🆕 Transformation des données logicalRooms...');
+    console.log('📦 LogicalRooms reçues:', logicalRooms);
+
+    // ✅ TRANSFORMER les données du frontend vers le schéma
+    const transformedLogicalRooms = (logicalRooms || []).map((room, index) => ({
+      logicalRoomId: `room_${index + 1}_${room.bedCount}beds`, // Ex: "room_1_4beds"
+      roomType: 'Standard', // Type par défaut, peut être personnalisé plus tard
+      bedCount: parseInt(room.bedCount) || 4,
+      maxCapacity: parseInt(room.bedCount) || 4, // Capacité = nombre de lits
+      quantity: parseInt(room.quantity) || 1, // ✅ Garder quantity pour nos calculs
+      pricePerNight: parseFloat(room.pricePerNight) || 0,
+      assignedClients: [], // Vide au début
+      currentOccupancy: 0,
+      isFullyOccupied: false,
+      assignedRooms: 0 // Nombre de chambres de ce type assignées
+    }));
+
+    console.log('🔄 LogicalRooms transformées:', transformedLogicalRooms);
+
     // Créer l'assignation
     const assignment = new Assignment({
       eventId,
       hotelId,
-      logicalRooms: logicalRooms || [],
+      logicalRooms: transformedLogicalRooms,
       notes: notes || '',
       status: 'Active'
     });
 
+    console.log('💾 Sauvegarde en cours...');
     await assignment.save();
-    await assignment.populate('hotelId', 'name address');
+    
+    console.log('✅ Assignation créée avec succès:', assignment._id);
+
+    await assignment.populate('hotelId', 'name address contact');
 
     res.status(201).json({
       success: true,
-      message: `Hôtel "${hotel.name}" assigné à l'événement "${event.name}"`,
+      message: `Hôtel "${hotel.name}" assigné à l'événement "${event.name}" avec ${transformedLogicalRooms.length} pack(s) de chambres`,
       data: assignment
     });
   } catch (error) {
-    console.error('Erreur création assignation:', error);
+    console.error('❌ ERREUR DÉTAILLÉE POST /api/assignments:', error);
+    console.error('❌ Stack:', error.stack);
     res.status(500).json({
       success: false,
       message: 'Erreur lors de la création de l\'assignation',
-      error: error.message
+      error: error.message,
+      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   }
 });
