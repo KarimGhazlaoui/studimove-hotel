@@ -6,15 +6,17 @@ const Event = require('../models/Event');
 const Assignment = require('../models/Assignment');
 const mongoose = require('mongoose');
 
-// GET /api/assignments/available-hotels/:eventId - VERSION SIMPLIFIÉE POUR TEST
+// GET /api/assignments/available-hotels/:eventId - VERSION DEBUG
 router.get('/available-hotels/:eventId', async (req, res) => {
   try {
     const { eventId } = req.params;
     
-    console.log(`🔍 Recherche hôtels disponibles pour événement: ${eventId}`);
+    console.log(`🔍 DEBUG - EventId reçu: ${eventId}`);
     
     // Vérifier que l'événement existe
     const event = await Event.findById(eventId);
+    console.log(`📅 DEBUG - Événement trouvé:`, event ? `${event.name}` : 'NULL');
+    
     if (!event) {
       return res.status(404).json({
         success: false,
@@ -22,14 +24,27 @@ router.get('/available-hotels/:eventId', async (req, res) => {
       });
     }
 
-    // 🆕 TEMPORAIRE: Retourner TOUS les hôtels actifs (sans vérifier assignments)
-    const allHotels = await Hotel.find({
-      status: 'Active'
-    }).sort({ name: 1 });
+    // TEST: Compter tous les hôtels dans la DB
+    const totalHotelsCount = await Hotel.countDocuments();
+    console.log(`🏨 DEBUG - Total hôtels en DB: ${totalHotelsCount}`);
 
-    console.log(`📋 ${allHotels.length} hôtels totaux trouvés`);
+    // TEST: Compter les hôtels actifs
+    const activeHotelsCount = await Hotel.countDocuments({ status: 'Active' });
+    console.log(`✅ DEBUG - Hôtels actifs: ${activeHotelsCount}`);
 
-    // 🆕 SIMPLIFICATION: Pas de vérification d'assignments pour l'instant
+    // Récupérer TOUS les hôtels (sans filtre)
+    const allHotelsRaw = await Hotel.find({});
+    console.log(`📋 DEBUG - Tous hôtels sans filtre: ${allHotelsRaw.length}`);
+    console.log(`📋 DEBUG - Premier hôtel:`, allHotelsRaw[0] ? {
+      name: allHotelsRaw[0].name, 
+      status: allHotelsRaw[0].status
+    } : 'AUCUN');
+
+    // Récupérer les hôtels actifs
+    const allHotels = await Hotel.find({ status: 'Active' }).sort({ name: 1 });
+    console.log(`🎯 DEBUG - Hôtels actifs trouvés: ${allHotels.length}`);
+
+    // Formatter pour le frontend
     const hotelsWithStats = allHotels.map(hotel => ({
       _id: hotel._id,
       name: hotel.name,
@@ -45,10 +60,17 @@ router.get('/available-hotels/:eventId', async (req, res) => {
       contact: hotel.contact
     }));
 
+    console.log(`📤 DEBUG - Données envoyées: ${hotelsWithStats.length} hôtels`);
+
     res.json({
       success: true,
       count: hotelsWithStats.length,
       data: hotelsWithStats,
+      debug: {
+        totalInDB: totalHotelsCount,
+        activeCount: activeHotelsCount,
+        foundWithoutFilter: allHotelsRaw.length
+      },
       event: {
         _id: event._id,
         name: event.name,
@@ -57,11 +79,12 @@ router.get('/available-hotels/:eventId', async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('❌ Erreur GET available-hotels:', error);
+    console.error('❌ DEBUG - Erreur GET available-hotels:', error);
     res.status(500).json({
       success: false,
       message: 'Erreur serveur',
-      error: error.message
+      error: error.message,
+      stack: error.stack
     });
   }
 });
