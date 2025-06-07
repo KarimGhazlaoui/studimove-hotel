@@ -374,7 +374,7 @@ router.post('/auto-assign/:eventId', async (req, res) => {
     }
 
     // Assigner les clients solo restants
-    const remainingClients = sortedClients.filter(client =>
+    const remainingClients = sortedClients.filter(client => 
       !client.groupName && client.status !== 'Assigné'
     );
 
