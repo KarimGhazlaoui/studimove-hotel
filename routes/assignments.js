@@ -760,4 +760,100 @@ async function assignSoloClient(client, hotels, eventId, maxClientsPerRoom) {
   }
 }
 
+// POST /api/assignments - Créer une assignation d'hôtel à un événement
+router.post('/', async (req, res) => {
+  try {
+    const { eventId, hotelId, logicalRooms, notes } = req.body;
+
+    // Vérifications
+    const [event, hotel] = await Promise.all([
+      Event.findById(eventId),
+      Hotel.findById(hotelId)
+    ]);
+
+    if (!event || !hotel) {
+      return res.status(404).json({
+        success: false,
+        message: 'Événement ou hôtel non trouvé'
+      });
+    }
+
+    // Vérifier si l'assignation existe déjà
+    const existingAssignment = await Assignment.findOne({ eventId, hotelId });
+    if (existingAssignment) {
+      return res.status(400).json({
+        success: false,
+        message: 'Cet hôtel est déjà assigné à cet événement'
+      });
+    }
+
+    // Créer l'assignation
+    const assignment = new Assignment({
+      eventId,
+      hotelId,
+      logicalRooms: logicalRooms || [],
+      notes: notes || '',
+      status: 'Active'
+    });
+
+    await assignment.save();
+    await assignment.populate('hotelId', 'name address');
+
+    res.status(201).json({
+      success: true,
+      message: `Hôtel "${hotel.name}" assigné à l'événement "${event.name}"`,
+      data: assignment
+    });
+  } catch (error) {
+    console.error('Erreur création assignation:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Erreur lors de la création de l\'assignation',
+      error: error.message
+    });
+  }
+});
+
+// DELETE /api/assignments/:id - Supprimer une assignation complète
+router.delete('/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const assignment = await Assignment.findById(id).populate('hotelId', 'name');
+    if (!assignment) {
+      return res.status(404).json({
+        success: false,
+        message: 'Assignation non trouvée'
+      });
+    }
+
+    // Vérifier s'il y a des clients assignés
+    const hasClients = assignment.logicalRooms.some(room => 
+      room.assignedClients && room.assignedClients.length > 0
+    );
+
+    if (hasClients) {
+      return res.status(400).json({
+        success: false,
+        message: 'Impossible de supprimer cette assignation : des clients y sont assignés. Désassignez-les d\'abord.'
+      });
+    }
+
+    await Assignment.findByIdAndDelete(id);
+
+    res.json({
+      success: true,
+      message: `Assignation de l'hôtel "${assignment.hotelId.name}" supprimée avec succès`
+    });
+  } catch (error) {
+    console.error('Erreur suppression assignation:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Erreur lors de la suppression de l\'assignation',
+      error: error.message
+    });
+  }
+});
+
+
 module.exports = router;
