@@ -50,9 +50,25 @@ router.get('/available-hotels/:eventId', async (req, res) => {
       const assignment = hotelAssignments.find(a => 
         a.hotelId.toString() === hotel._id.toString()
       );
-      
-      // 🆕 UTILISER les valeurs directes de l'assignment (pas les stats)
-      const totalCapacity = assignment?.totalCapacity || hotel.totalCapacity || 0;
+
+      // 🆕 LOGS DE DEBUG DÉTAILLÉS
+      console.log(`🏨 Hotel: ${hotel.name}`);
+      console.log(`🏨 Assignment exists:`, !!assignment);
+      if (assignment) {
+        console.log(`🏨 Assignment._id:`, assignment._id);
+        console.log(`🏨 Assignment.totalCapacity direct:`, assignment.totalCapacity);
+        console.log(`🏨 Assignment keys:`, Object.keys(assignment));
+        console.log(`🏨 Assignment toObject:`, assignment.toObject ? assignment.toObject().totalCapacity : 'pas toObject');
+        console.log(`🏨 Assignment get:`, assignment.get ? assignment.get('totalCapacity') : 'pas get');
+      }
+
+      // 🆕 ESSAYER DIFFÉRENTES FAÇONS D'ACCÉDER À totalCapacity
+      const totalCapacity = assignment?.totalCapacity || 
+                         assignment?.get?.('totalCapacity') || 
+                         assignment?.toObject?.()?.totalCapacity || 
+                         hotel.totalCapacity || 0;
+
+      console.log(`🏨 Final totalCapacity: ${totalCapacity}`);
       const occupancy = assignment?.totalAssigned || assignment?.stats?.totalAssigned || 0;
       const availableRooms = Math.max(0, totalCapacity - occupancy);
       const occupancyRate = totalCapacity > 0 ? Math.round((occupancy / totalCapacity) * 100) : 0;
